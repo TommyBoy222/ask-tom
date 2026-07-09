@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>Tom's AI Career Assistant</title>
+<meta name="description" content="Ask Tom's AI assistant about his experience, background, and AI projects." />
+<style>
+  /* ------------------------------------------------------------------
+     Theme tokens — auto-follows the device's dark/light mode.
+     LinkedIn-inspired palette per spec: #0A66C2 accent, #1D2226 dark.
+  ------------------------------------------------------------------ */
+  :root {
+    --accent: #0A66C2;
+    --accent-pressed: #084d94;
+    --bg: #f3f2ef;
+    --surface: #ffffff;
+    --bubble-ai: #eef0f2;
+    --text: #1d2226;
+    --text-muted: #6e767d;
+    --border: #dfe2e6;
+    --glow: rgba(10, 102, 194, 0.35);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181b;
+      --surface: #1d2226;
+      --bubble-ai: #2b3237;
+      --text: #f2f4f6;
+      --text-muted: #9aa4ad;
+      --border: #3a4248;
+      --glow: rgba(112, 181, 249, 0.4);
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+  }
+
+  /* App shell — mobile-first; on desktop it reads as a centered popup card. */
+  .app {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    background: var(--surface);
+  }
+  @media (min-width: 560px) {
+    body { align-items: center; padding: 24px 0; }
+    .app {
+      height: min(780px, calc(100dvh - 48px));
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
+      overflow: hidden;
+    }
+  }
+
+  /* ---------------- Top bar ---------------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 999px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .btn-ghost {
+    color: var(--text);
+    background: transparent;
+    border: none;
+    padding: 8px 10px;
+  }
+  .btn-ghost:active {
+    color: var(--accent-pressed);
+    box-shadow: 0 0 0 3px var(--glow);
+    background: var(--bubble-ai);
+  }
+
+  .btn-outline {
+    color: var(--accent);
+    background: transparent;
+    border: 1.5px solid var(--accent);
+    padding: 8px 14px;
+  }
+  .btn-outline:active {
+    color: #fff;
+    background: var(--accent-pressed);
+    box-shadow: 0 0 0 3px var(--glow);
+  }
+
+  .icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* ---------------- Disclaimer ---------------- */
+  .disclaimer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 10px 20px 4px;
+    flex-shrink: 0;
+  }
+
+  /* ---------------- Chat area ---------------- */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scroll-behavior: smooth;
+  }
+  .bubble {
+    max-width: 82%;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 15px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.ai {
+    align-self: flex-start;
+    background: var(--bubble-ai);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+  .bubble.typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 16px;
+  }
+  .typing-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    animation: typing-bounce 1.2s infinite ease-in-out;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* ---------------- Timestamps ---------------- */
+  .timestamp {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    padding: 0 4px;
+  }
+  .bubble-row { display: flex; flex-direction: column; max-width: 82%; }
+  .bubble-row.user { align-self: flex-end; align-items: flex-end; }
+  .bubble-row.ai { align-self: flex-start; align-items: flex-start; }
+  .bubble-row .bubble { max-width: 100%; }
+
+  /* ---------------- Starter chips ---------------- */
+  .chips {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 4px 16px 10px;
+    flex-shrink: 0;
+  }
+  .chip {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+    border: 1.5px solid var(--accent);
+    border-radius: 999px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chip:active {
+    color: #fff;
+    background: var(--accent-pressed);
+    box-shadow: 0 0 0 3px var(--glow);
+  }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------------- Save-chat link ---------------- */
+  .savechat {
+    display: none;
+    align-self: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 10px 8px;
+    text-decoration: underline;
+  }
+  .savechat.visible { display: block; }
+  .savechat:active { color: var(--accent-pressed); }
+
+  /* ---------------- Input row ---------------- */
+  .inputrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .inputrow input {
+    flex: 1;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 999px;
+    padding: 11px 16px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .inputrow input::placeholder { color: var(--text-muted); }
+  .inputrow input:focus { border-color: var(--accent); }
+
+  .send {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .send:active { background: var(--accent-pressed); box-shadow: 0 0 0 3px var(--glow); }
+  .send:disabled { opacity: 0.5; cursor: default; }
+  .send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .send .icon { width: 18px; height: 18px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+    .chat { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <a class="btn btn-ghost" id="backLink" href="#" rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      Back to LinkedIn
+    </a>
+    <a class="btn btn-outline" id="resumeLink" href="#" download rel="noopener">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      Download Resume
+    </a>
+  </header>
+
+  <!-- Disclaimer -->
+  <p class="disclaimer">I'm an AI chat Tom built to share his work and projects.<br>Chats aren't linked to your LinkedIn or saved after you leave.</p>
+
+  <!-- Chat -->
+  <main class="chat" id="chat" aria-live="polite"></main>
+
+  <!-- Save chat -->
+  <button class="savechat" id="saveChat" type="button">Download this chat (.txt)</button>
+
+  <!-- Starter chips -->
+  <div class="chips" id="chips">
+    <button class="chip" type="button" data-q="Tell me about Tom's experience.">Ask me about my experience</button>
+    <button class="chip" type="button" data-q="Tell me about Tom's AI project.">Ask me about my AI project</button>
+  </div>
+
+  <!-- Input -->
+  <div class="inputrow">
+    <input id="input" type="text" placeholder="Type a message..." maxlength="1000" autocomplete="off" aria-label="Your message" />
+    <button class="send" id="send" type="button" aria-label="Send message">
+      <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/>
+      </svg>
+    </button>
+  </div>
+
+</div>
+
+<script>
+  // ================= CONFIG — update these two before deploying ============
+  const WORKER_URL  = "/api/chat";                                    // Same-domain Vercel API route — leave as is
+  const LINKEDIN_URL = "https://www.linkedin.com/in/thomasmgreene06/";   // Back-to-LinkedIn target
+  const RESUME_URL   = "./resume.pdf";                                // Resume PDF path or URL
+  // ==========================================================================
+
+  const chatEl  = document.getElementById("chat");
+  const inputEl = document.getElementById("input");
+  const sendEl  = document.getElementById("send");
+  const chipsEl = document.getElementById("chips");
+  const saveEl  = document.getElementById("saveChat");
+
+  document.getElementById("backLink").href   = LINKEDIN_URL;
+  document.getElementById("resumeLink").href = RESUME_URL;
+
+  // Conversation history sent to the Worker (Worker also caps at 10 turns).
+  const history = [];
+  let busy = false;
+
+  const GREETING =
+    "Hello! I'm Tom's AI assistant. I can tell you about his experience, background, and the AI projects he's built. What would you like to know?";
+
+  addBubble("ai", GREETING);
+
+  function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function addBubble(role, text, opts = {}) {
+    const row = document.createElement("div");
+    row.className = "bubble-row " + (role === "user" ? "user" : "ai");
+
+    const el = document.createElement("div");
+    el.className = "bubble " + (role === "user" ? "user" : "ai") + (opts.typing ? " typing" : "");
+
+    if (opts.typing) {
+      el.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>';
+    } else {
+      el.textContent = text;
+    }
+    row.appendChild(el);
+
+    // Typing indicator gets no timestamp — only real messages do.
+    if (!opts.typing) {
+      const ts = document.createElement("span");
+      ts.className = "timestamp";
+      ts.textContent = formatTime(new Date());
+      row.appendChild(ts);
+    }
+
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return { row, bubble: el };
+  }
+
+  function resolveTyping(typing, text) {
+    typing.bubble.classList.remove("typing");
+    typing.bubble.innerHTML = "";
+    typing.bubble.textContent = text;
+
+    const ts = document.createElement("span");
+    ts.className = "timestamp";
+    ts.textContent = formatTime(new Date());
+    typing.row.appendChild(ts);
+  }
+
+  async function send(text) {
+    const message = (text ?? inputEl.value).trim();
+    if (!message || busy) return;
+
+    busy = true;
+    sendEl.disabled = true;
+    inputEl.value = "";
+    chipsEl.style.display = "none"; // hide starter chips after first message
+
+    addBubble("user", message);
+    history.push({ role: "user", content: message });
+
+    const typing = addBubble("ai", "", { typing: true });
+
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const data = await res.json();
+      const reply = data.reply ||
+        "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.";
+
+      // Debug aid (visitors never see this — console only): makes it easy to
+      // tell a real Anthropic API failure apart from normal rate limiting.
+      if (data.unavailable) {
+        console.warn("[debug] Genuine API failure — check Vercel Logs for the Anthropic error detail.");
+      } else if (data.rateLimited) {
+        console.info("[debug] Rate-limit response (expected behavior, not an error).");
+      }
+
+      resolveTyping(typing, reply);
+
+      // Rate-limit warnings & outage notices don't belong in model context.
+      if (!data.rateLimited && !data.unavailable) {
+        history.push({ role: "assistant", content: reply });
+      } else {
+        history.pop(); // drop the blocked user message from history too
+      }
+    } catch {
+      resolveTyping(typing,
+        "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.");
+      history.pop();
+    } finally {
+      busy = false;
+      sendEl.disabled = false;
+      saveEl.classList.add("visible");
+      chatEl.scrollTop = chatEl.scrollHeight;
+      inputEl.focus();
+    }
+  }
+
+  sendEl.addEventListener("click", () => send());
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  chipsEl.addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (chip) send(chip.dataset.q);
+  });
+
+  // Download-this-chat: .txt, timestamped, labeled by speaker.
+  saveEl.addEventListener("click", () => {
+    const stamp = new Date();
+    const lines = [
+      "Chat with Tom's AI Career Assistant",
+      "Exported: " + stamp.toLocaleString(),
+      "".padEnd(40, "-"),
+      "",
+    ];
+    chatEl.querySelectorAll(".bubble").forEach((b) => {
+      const who = b.classList.contains("user") ? "Visitor" : "Assistant";
+      lines.push(who + ": " + b.textContent, "");
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tom-ai-chat-" + stamp.toISOString().slice(0, 19).replace(/[T:]/g, "-") + ".txt";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+</script>
+</body>
+</html>
