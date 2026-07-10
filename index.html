@@ -50,12 +50,14 @@
 
   /* App shell — mobile-first; on desktop it reads as a centered popup card. */
   .app {
+    position: relative; /* anchors the slide-out menu, backdrop, and modal */
     display: flex;
     flex-direction: column;
     width: 100%;
     max-width: 480px;
     height: 100dvh;
     background: var(--surface);
+    overflow: hidden; /* keeps the off-screen menu from creating scroll */
   }
   @media (min-width: 560px) {
     body { align-items: center; padding: 24px 0; }
@@ -218,20 +220,129 @@
   }
   .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---------------- Save-chat link ---------------- */
-  .savechat {
-    display: none;
-    align-self: center;
-    font-size: 12px;
-    color: var(--text-muted);
-    background: none;
+  /* ---------------- Hamburger toggle ---------------- */
+  .hamburger {
+    position: relative;
+    z-index: 40; /* stays above the menu panel so the X remains tappable */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
     border: none;
+    border-radius: 999px;
+    background: transparent;
     cursor: pointer;
-    padding: 4px 10px 8px;
-    text-decoration: underline;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
   }
-  .savechat.visible { display: block; }
-  .savechat:active { color: var(--accent-pressed); }
+  .hamburger:active {
+    background: var(--bubble-ai);
+    box-shadow: 0 0 0 3px var(--glow);
+  }
+  .hamburger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hamburger .bar {
+    width: 20px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--text);
+    transition: transform 0.25s ease, opacity 0.2s ease;
+  }
+  /* Morph to X: outer bars rotate into place, middle bar fades out */
+  .hamburger.open .bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .hamburger.open .bar:nth-child(2) { opacity: 0; }
+  .hamburger.open .bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+  /* ---------------- Slide-out menu ---------------- */
+  .menu-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+  .menu-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .menu {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 72%;
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 68px 12px 12px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+  }
+  .menu.open { transform: translateX(0); }
+
+  .menu-item {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: left;
+    color: var(--text);
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  /* Pressed state mirrors the Back to LinkedIn button */
+  .menu-item:active {
+    color: var(--accent-pressed);
+    background: var(--bubble-ai);
+    box-shadow: 0 0 0 3px var(--glow);
+  }
+  .menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------------- Confirmation modal ---------------- */
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .modal {
+    width: 100%;
+    max-width: 320px;
+    padding: 20px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  }
+  .modal-text {
+    font-size: 15px;
+    line-height: 1.4;
+    margin-bottom: 16px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
 
   /* ---------------- Input row ---------------- */
   .inputrow {
@@ -295,24 +406,41 @@
       </svg>
       Back to LinkedIn
     </a>
-    <a class="btn btn-outline" id="resumeLink" href="#" download rel="noopener">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-        <polyline points="7 10 12 15 17 10"></polyline>
-        <line x1="12" y1="15" x2="12" y2="3"></line>
-      </svg>
-      Download Resume
-    </a>
+    <button class="hamburger" id="menuToggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+      <span class="bar"></span>
+      <span class="bar"></span>
+      <span class="bar"></span>
+    </button>
   </header>
+
+  <!-- Menu backdrop (tap to close) -->
+  <div class="menu-backdrop" id="menuBackdrop"></div>
+
+  <!-- Slide-out menu -->
+  <nav class="menu" id="menu" aria-hidden="true">
+    <button class="menu-item" id="menuResume" type="button">Download Resume</button>
+    <button class="menu-item" id="menuLinkedIn" type="button">Connect on LinkedIn</button>
+    <button class="menu-item" id="menuGitHub" type="button">See My GitHub</button>
+    <button class="menu-item" id="menuExport" type="button">Export Chat</button>
+    <button class="menu-item" id="menuReset" type="button">Reset Chat</button>
+  </nav>
+
+  <!-- Confirmation modal (Reset Chat + leave prompt) -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <p class="modal-text" id="modalText"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modalCancel" type="button"></button>
+        <button class="btn btn-outline" id="modalConfirm" type="button"></button>
+      </div>
+    </div>
+  </div>
 
   <!-- Disclaimer -->
   <p class="disclaimer">I'm an AI chat Tom built to share his work and projects.<br>Chats aren't linked to your LinkedIn or saved after you leave.</p>
 
   <!-- Chat -->
   <main class="chat" id="chat" aria-live="polite"></main>
-
-  <!-- Save chat -->
-  <button class="savechat" id="saveChat" type="button">Download this chat (.txt)</button>
 
   <!-- Starter chips -->
   <div class="chips" id="chips">
@@ -337,20 +465,29 @@
   const WORKER_URL  = "/api/chat";                                    // Same-domain Vercel API route — leave as is
   const LINKEDIN_URL = "https://www.linkedin.com/in/thomasmgreene06/";   // Back-to-LinkedIn target
   const RESUME_URL   = "./resume.pdf";                                // Resume PDF path or URL
+  const GITHUB_URL   = "https://github.com/TommyBoy222/ask-tom";      // See My GitHub target
   // ==========================================================================
 
   const chatEl  = document.getElementById("chat");
   const inputEl = document.getElementById("input");
   const sendEl  = document.getElementById("send");
   const chipsEl = document.getElementById("chips");
-  const saveEl  = document.getElementById("saveChat");
 
-  document.getElementById("backLink").href   = LINKEDIN_URL;
-  document.getElementById("resumeLink").href = RESUME_URL;
+  const backLink      = document.getElementById("backLink");
+  const menuToggle    = document.getElementById("menuToggle");
+  const menuEl        = document.getElementById("menu");
+  const menuBackdrop  = document.getElementById("menuBackdrop");
+  const modalBackdrop = document.getElementById("modalBackdrop");
+  const modalText     = document.getElementById("modalText");
+  const modalConfirm  = document.getElementById("modalConfirm");
+  const modalCancel   = document.getElementById("modalCancel");
+
+  backLink.href = LINKEDIN_URL;
 
   // Conversation history sent to the Worker (Worker also caps at 10 turns).
   const history = [];
   let busy = false;
+  let hasExported = false; // tracks whether this session's chat was downloaded
 
   const GREETING =
     "Hello! I'm Tom's AI assistant. I can tell you about his experience, background, and the AI projects he's built. What would you like to know?";
@@ -446,7 +583,6 @@
     } finally {
       busy = false;
       sendEl.disabled = false;
-      saveEl.classList.add("visible");
       chatEl.scrollTop = chatEl.scrollHeight;
       inputEl.focus();
     }
@@ -461,8 +597,43 @@
     if (chip) send(chip.dataset.q);
   });
 
-  // Download-this-chat: .txt, timestamped, labeled by speaker.
-  saveEl.addEventListener("click", () => {
+  // ================= Slide-out menu =================
+  function setMenu(open) {
+    menuEl.classList.toggle("open", open);
+    menuBackdrop.classList.toggle("open", open);
+    menuToggle.classList.toggle("open", open);
+    menuToggle.setAttribute("aria-expanded", String(open));
+    menuToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    menuEl.setAttribute("aria-hidden", String(!open));
+  }
+
+  menuToggle.addEventListener("click", () => {
+    setMenu(!menuEl.classList.contains("open"));
+  });
+  menuBackdrop.addEventListener("click", () => setMenu(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (modalBackdrop.classList.contains("open")) closeModal();
+    else setMenu(false);
+  });
+
+  // ================= Confirmation modal =================
+  // One reusable dialog: Reset Chat confirm + the pre-leave download prompt.
+  function showModal(text, confirmLabel, cancelLabel, onConfirm, onCancel) {
+    modalText.textContent = text;
+    modalConfirm.textContent = confirmLabel;
+    modalCancel.textContent = cancelLabel;
+    modalConfirm.onclick = () => { closeModal(); if (onConfirm) onConfirm(); };
+    modalCancel.onclick  = () => { closeModal(); if (onCancel) onCancel(); };
+    modalBackdrop.classList.add("open");
+    modalConfirm.focus();
+  }
+  function closeModal() {
+    modalBackdrop.classList.remove("open");
+  }
+
+  // ================= Chat export / reset =================
+  function exportChat() {
     const stamp = new Date();
     const lines = [
       "Chat with Tom's AI Career Assistant",
@@ -480,6 +651,69 @@
     a.download = "tom-ai-chat-" + stamp.toISOString().slice(0, 19).replace(/[T:]/g, "-") + ".txt";
     a.click();
     URL.revokeObjectURL(a.href);
+    hasExported = true;
+  }
+
+  function resetChat() {
+    chatEl.innerHTML = "";
+    history.length = 0;
+    hasExported = false;            // fresh conversation, nothing downloaded yet
+    chipsEl.style.display = "";     // bring the starter chips back
+    inputEl.value = "";
+    addBubble("ai", GREETING);
+  }
+
+  // ================= Menu item actions (menu auto-closes after each) =====
+  document.getElementById("menuResume").addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = RESUME_URL;
+    a.download = "";
+    a.click();
+    setMenu(false);
+  });
+
+  document.getElementById("menuLinkedIn").addEventListener("click", () => {
+    window.open(LINKEDIN_URL, "_blank", "noopener");
+    setMenu(false);
+  });
+
+  document.getElementById("menuGitHub").addEventListener("click", () => {
+    window.open(GITHUB_URL, "_blank", "noopener");
+    setMenu(false);
+  });
+
+  document.getElementById("menuExport").addEventListener("click", () => {
+    exportChat();
+    setMenu(false);
+  });
+
+  document.getElementById("menuReset").addEventListener("click", () => {
+    showModal(
+      "Are you sure? This will clear your conversation.",
+      "Confirm",
+      "Cancel",
+      () => { resetChat(); setMenu(false); }
+      // Cancel: modal closes, menu stays open (no onCancel needed)
+    );
+  });
+
+  // ================= Back to LinkedIn: pre-leave download prompt =========
+  backLink.addEventListener("click", (e) => {
+    const hasUserMessages = !!chatEl.querySelector(".bubble.user");
+    if (!hasUserMessages || hasExported) return; // navigate normally
+
+    e.preventDefault();
+    showModal(
+      "Would you like to download this chat before leaving?",
+      "Download & Leave",
+      "Just Leave",
+      () => {
+        exportChat();
+        // Brief delay so the download starts before navigation begins.
+        setTimeout(() => { window.location.href = LINKEDIN_URL; }, 350);
+      },
+      () => { window.location.href = LINKEDIN_URL; }
+    );
   });
 </script>
 </body>
