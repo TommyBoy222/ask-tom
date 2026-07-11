@@ -269,19 +269,22 @@
 
   .menu {
     position: absolute;
-    top: 0;
+    top: 64px;             /* clears the top bar (12px pad + ~40px content) */
     right: 0;
-    bottom: 0;
     z-index: 30;
-    width: 72%;
-    max-width: 300px;
+    width: 62%;
+    max-width: 280px;
     display: flex;
     flex-direction: column;
     align-items: flex-start; /* items shrink-wrap and stack from the left */
     gap: 10px;
-    padding: 68px 12px 12px;
+    padding: 14px 12px;      /* symmetric top/bottom so no dead space below */
     background: var(--surface);
-    border-left: 1px solid var(--border);
+    border: 1px solid var(--border);
+    border-right: none;      /* flush against the screen's right edge */
+    border-top-left-radius: 16px;
+    border-bottom-left-radius: 16px;
+    box-shadow: -4px 6px 20px rgba(0, 0, 0, 0.18);
     transform: translateX(100%);
     transition: transform 0.28s ease;
   }
@@ -487,24 +490,24 @@
   <!-- Slide-out menu -->
   <nav class="menu" id="menu" aria-hidden="true">
     <button class="menu-item" id="menuResume" type="button">
-      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="15"/><polyline points="17 10 12 15 7 10"/><line x1="4" y1="20" x2="20" y2="20"/></svg>
       Download Resume
     </button>
     <button class="menu-item" id="menuLinkedIn" type="button">
-      <svg class="menu-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+      <svg class="menu-icon" viewBox="0 0 24 24" role="img" aria-label="LinkedIn"><rect x="1.5" y="1.5" width="21" height="21" rx="1.8" fill="currentColor"/><circle cx="7.1" cy="7.1" r="1.45" fill="var(--surface)"/><rect x="5.8" y="9.2" width="2.6" height="8.9" fill="var(--surface)"/><path fill="var(--surface)" d="M10.2 9.2h2.5v1.22h.04c.35-.66 1.2-1.56 2.77-1.56 2.96 0 3.51 1.95 3.51 4.48v4.74h-2.62v-4.2c0-1-.02-2.29-1.4-2.29-1.4 0-1.62 1.09-1.62 2.22v4.27H10.2V9.2z"/></svg>
       Connect on LinkedIn
     </button>
     <button class="menu-item" id="menuGitHub" type="button">
-      <svg class="menu-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+      <svg class="menu-icon" viewBox="0 0 24 24" role="img" aria-label="GitHub"><path fill="currentColor" d="M12 0C5.37 0 0 5.48 0 12.24c0 5.41 3.44 10 8.21 11.62.6.11.82-.27.82-.59 0-.29-.01-1.06-.02-2.08-3.34.74-4.04-1.64-4.04-1.64-.55-1.42-1.34-1.8-1.34-1.8-1.09-.76.08-.75.08-.75 1.21.09 1.84 1.27 1.84 1.27 1.07 1.87 2.81 1.33 3.5 1.02.11-.79.42-1.33.76-1.64-2.67-.31-5.47-1.36-5.47-6.05 0-1.34.47-2.43 1.24-3.29-.12-.31-.54-1.56.12-3.25 0 0 1.01-.33 3.3 1.26A11.3 11.3 0 0 1 12 6.1c1.02 0 2.04.14 3 .41 2.29-1.59 3.3-1.26 3.3-1.26.66 1.69.24 2.94.12 3.25.77.86 1.24 1.95 1.24 3.29 0 4.7-2.81 5.73-5.49 6.03.43.38.82 1.12.82 2.26 0 1.63-.02 2.94-.02 3.34 0 .33.22.71.83.59C20.57 22.23 24 17.65 24 12.24 24 5.48 18.63 0 12 0z"/></svg>
       See My GitHub
     </button>
     <div class="menu-divider"></div>
     <button class="menu-item" id="menuExport" type="button">
-      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9.5 14.5 12 17 14.5 14.5"/></svg>
       Save Chat
     </button>
     <button class="menu-item" id="menuReset" type="button">
-      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       Reset Chat
     </button>
   </nav>
