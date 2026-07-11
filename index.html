@@ -277,7 +277,8 @@
     max-width: 300px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    align-items: flex-start; /* items shrink-wrap and stack from the left */
+    gap: 10px;
     padding: 68px 12px 12px;
     background: var(--surface);
     border-left: 1px solid var(--border);
@@ -294,11 +295,16 @@
     color: var(--text);
     background: transparent;
     border: none;
-    border-radius: 10px;
-    padding: 14px;
+    border-radius: 999px;
+    padding: 10px 16px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    /* No width set: items shrink-wrap icon + label so the pressed
+       pill hugs the content, matching the Back to LinkedIn button. */
   }
   /* Pressed state mirrors the Back to LinkedIn button */
   .menu-item:active {
@@ -306,7 +312,22 @@
     background: var(--bubble-ai);
     box-shadow: 0 0 0 3px var(--glow);
   }
+  .menu-item:active .menu-icon { color: var(--accent-pressed); }
   .menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .menu-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  .menu-divider {
+    align-self: stretch; /* spans panel width even though items shrink-wrap */
+    height: 1px;
+    background: var(--border);
+    margin: 4px 14px;
+  }
 
   /* ---------------- Confirmation modal ---------------- */
   .modal-backdrop {
@@ -325,23 +346,70 @@
   .modal-backdrop.open { opacity: 1; pointer-events: auto; }
 
   .modal {
+    position: relative;
     width: 100%;
     max-width: 320px;
-    padding: 20px 18px;
+    padding: 20px 18px 18px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   }
+
+  .modal-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .modal-close:active { background: var(--bubble-ai); color: var(--text); }
+  .modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   .modal-text {
-    font-size: 15px;
+    font-size: 13px;
     line-height: 1.4;
-    margin-bottom: 16px;
+    text-align: center;
+    margin: 8px 0 16px; /* top margin clears the X button */
+    white-space: nowrap;
+  }
+  @media (max-width: 379px) {
+    .modal-text { font-size: 12px; } /* keeps the longer reset message on one line */
   }
   .modal-actions {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  /* Destructive confirm button (Reset) — red filled to signal seriousness */
+  .btn-danger {
+    color: #fff;
+    background: #d11a2a;
+    border: 1.5px solid #d11a2a;
+    padding: 8px 18px;
+  }
+  .btn-danger:active {
+    background: #a3121f;
+    border-color: #a3121f;
+    box-shadow: 0 0 0 3px rgba(209, 26, 42, 0.35);
+  }
+
+  /* Slow the slide animation slightly on 60Hz mobile screens */
+  @media (max-width: 559px) {
+    .menu { transition: transform 0.35s ease; }
+    .menu-backdrop { transition: opacity 0.35s ease; }
+    .hamburger .bar { transition: transform 0.3s ease, opacity 0.25s ease; }
   }
 
   /* ---------------- Input row ---------------- */
@@ -418,16 +486,35 @@
 
   <!-- Slide-out menu -->
   <nav class="menu" id="menu" aria-hidden="true">
-    <button class="menu-item" id="menuResume" type="button">Download Resume</button>
-    <button class="menu-item" id="menuLinkedIn" type="button">Connect on LinkedIn</button>
-    <button class="menu-item" id="menuGitHub" type="button">See My GitHub</button>
-    <button class="menu-item" id="menuExport" type="button">Export Chat</button>
-    <button class="menu-item" id="menuReset" type="button">Reset Chat</button>
+    <button class="menu-item" id="menuResume" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download Resume
+    </button>
+    <button class="menu-item" id="menuLinkedIn" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+      Connect on LinkedIn
+    </button>
+    <button class="menu-item" id="menuGitHub" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+      See My GitHub
+    </button>
+    <div class="menu-divider"></div>
+    <button class="menu-item" id="menuExport" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+      Save Chat
+    </button>
+    <button class="menu-item" id="menuReset" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+      Reset Chat
+    </button>
   </nav>
 
   <!-- Confirmation modal (Reset Chat + leave prompt) -->
   <div class="modal-backdrop" id="modalBackdrop">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalText">
+      <button class="modal-close" id="modalClose" type="button" aria-label="Dismiss">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
       <p class="modal-text" id="modalText"></p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="modalCancel" type="button"></button>
@@ -480,6 +567,7 @@
   const modalBackdrop = document.getElementById("modalBackdrop");
   const modalText     = document.getElementById("modalText");
   const modalConfirm  = document.getElementById("modalConfirm");
+  const modalClose     = document.getElementById("modalClose");
   const modalCancel   = document.getElementById("modalCancel");
 
   backLink.href = LINKEDIN_URL;
@@ -619,12 +707,21 @@
 
   // ================= Confirmation modal =================
   // One reusable dialog: Reset Chat confirm + the pre-leave download prompt.
-  function showModal(text, confirmLabel, cancelLabel, onConfirm, onCancel) {
+  function showModal(text, confirmLabel, cancelLabel, onConfirm, onCancel, opts = {}) {
     modalText.textContent = text;
     modalConfirm.textContent = confirmLabel;
     modalCancel.textContent = cancelLabel;
     modalConfirm.onclick = () => { closeModal(); if (onConfirm) onConfirm(); };
     modalCancel.onclick  = () => { closeModal(); if (onCancel) onCancel(); };
+    modalClose.onclick   = () => { closeModal(); };
+
+    // Red destructive confirm button (Reset) vs default blue outline.
+    modalConfirm.classList.toggle("btn-danger", !!opts.danger);
+    modalConfirm.classList.toggle("btn-outline", !opts.danger);
+
+    // Some modals (Reset) don't need an X — Cancel already dismisses.
+    modalClose.style.display = opts.hideClose ? "none" : "";
+
     modalBackdrop.classList.add("open");
     modalConfirm.focus();
   }
@@ -689,11 +786,12 @@
 
   document.getElementById("menuReset").addEventListener("click", () => {
     showModal(
-      "Are you sure? This will clear your conversation.",
-      "Confirm",
+      "Are you sure? This will erase your chat.",
+      "Reset",
       "Cancel",
-      () => { resetChat(); setMenu(false); }
-      // Cancel: modal closes, menu stays open (no onCancel needed)
+      () => { resetChat(); setMenu(false); },
+      null,
+      { danger: true, hideClose: true }
     );
   });
 
@@ -704,12 +802,11 @@
 
     e.preventDefault();
     showModal(
-      "Would you like to download this chat before leaving?",
-      "Download & Leave",
-      "Just Leave",
+      "Want to take this chat with you?",
+      "Save Chat",
+      "Not now",
       () => {
         exportChat();
-        // Brief delay so the download starts before navigation begins.
         setTimeout(() => { window.location.href = LINKEDIN_URL; }, 350);
       },
       () => { window.location.href = LINKEDIN_URL; }
