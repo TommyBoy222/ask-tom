@@ -109,13 +109,28 @@ Never invent:
 Do not speculate about internal company information, coworkers, compensation, future plans, confidential matters, or personal/self-reflective topics not covered in this document.
 If asked something outside this document — including personal opinions, self-assessments, or anything not explicitly listed here — respond:
 "That's outside what I'm able to share here. Feel free to reach out to Tom directly if you'd like to continue that conversation."
-If unsure of an answer, say so rather than guessing.`;
+If unsure of an answer, say so rather than guessing.
+
+RESPONSE FORMAT (STRICT)
+Every response must be ONLY a single valid JSON object — no text, code fences, or explanation before or after it:
+{"reply": "your answer here", "answerType": "general", "suggestions": ["question 1", "question 2"]}
+
+- "reply" — your conversational answer. Every rule above (TONE, BOUNDARIES, length limits, plain text with absolutely no Markdown) applies to this field. The visitor sees only this text, never the JSON around it.
+- "answerType" — use "detailed" when the reply is an in-depth explanation of a project or work experience; otherwise use "general".
+- "suggestions" — an array of 0, 1, or 2 short follow-up questions the visitor could tap to ask next.
+
+SUGGESTION RULES
+- Only include suggestions when they would genuinely help the visitor discover something new about Tom's work, experience, or projects.
+- Return an empty array [] when: the visitor is already driving with their own specific or detailed questions; the topic is exhausted; the conversation has become task-oriented; or there is no genuinely useful next question. Never suggest just to fill space.
+- Every suggestion must be answerable from the content in this document. Never suggest a question you would have to refuse or redirect.
+- Phrase each suggestion as a short, natural question from the visitor's point of view, e.g. "How did he build Jarvis?" or "What's his management style?".
+- Earlier assistant turns may appear as plain text in the conversation; you must still respond with only the JSON object.`;
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 const MODEL = "claude-haiku-4-5";
-const MAX_TOKENS = 450;
+const MAX_TOKENS = 650; // reply (plain text) + JSON wrapper + up to 2 suggestions
 const MAX_TURNS = 10;
 
 const COOLDOWN_SECONDS = 10;
@@ -207,6 +222,59 @@ function clientIp(req) {
   const fwd = req.headers["x-forwarded-for"];
   if (typeof fwd === "string" && fwd.length) return fwd.split(",")[0].trim();
   return req.headers["x-real-ip"] || "unknown";
+}
+
+/**
+ * Parse the model's structured {reply, answerType, suggestions} JSON.
+ * Falls back to treating the raw text as the reply (no suggestions) so a
+ * malformed response never breaks the chat.
+ */
+function parseStructured(raw) {
+  const fallback = { reply: raw, answerType: "general", suggestions: [] };
+  if (!raw) return fallback;
+
+  let text = raw.trim();
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fenced) text = fenced[1].trim();
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1) return fallback; // plain text, no JSON at all
+
+  try {
+    const obj = JSON.parse(text.slice(start, end + 1));
+    // Parsed JSON but no usable reply: never echo raw JSON to the visitor —
+    // return an empty reply so the handler serves the capacity message.
+    if (typeof obj.reply !== "string" || !obj.reply.trim()) {
+      return { reply: "", answerType: "general", suggestions: [] };
+    }
+    return {
+      reply: obj.reply.trim(),
+      answerType: obj.answerType === "detailed" ? "detailed" : "general",
+      suggestions: Array.isArray(obj.suggestions)
+        ? obj.suggestions
+            .filter((s) => typeof s === "string" && s.trim().length)
+            .map((s) => s.trim())
+            .slice(0, 2)
+        : [],
+    };
+  } catch {
+    // Malformed/truncated JSON: rescue the reply string so the visitor never
+    // sees raw JSON. Matches up to the last complete escape sequence.
+    const m = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (m) {
+      try {
+        return {
+          reply: JSON.parse('"' + m[1] + '"').trim(),
+          answerType: "general",
+          suggestions: [],
+        };
+      } catch {
+        /* fall through */
+      }
+    }
+    return fallback;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,13 +375,19 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    const reply = (data.content || [])
+    const raw = (data.content || [])
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n")
       .trim();
 
-    res.status(200).json({ reply: reply || MSG_CAPACITY });
+    if (!raw) {
+      res.status(200).json({ reply: MSG_CAPACITY, answerType: "general", suggestions: [] });
+      return;
+    }
+
+    const { reply, answerType, suggestions } = parseStructured(raw);
+    res.status(200).json({ reply: reply || MSG_CAPACITY, answerType, suggestions });
   } catch (err) {
     console.error("Anthropic API call failed:", err);
     res.status(200).json({ reply: MSG_CAPACITY, unavailable: true });

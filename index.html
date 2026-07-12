@@ -192,14 +192,19 @@
   .bubble-row.ai { align-self: flex-start; align-items: flex-start; }
   .bubble-row .bubble { max-width: 100%; }
 
-  /* ---------------- Starter chips ---------------- */
-  .chips {
+  /* ---------------- Suggestion chips (in chat flow, below a bot answer) ---------------- */
+  .suggestions {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
-    padding: 4px 16px 10px;
-    flex-shrink: 0;
+    margin-top: 6px;
+  }
+  .suggestion-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 4px;
   }
   .chip {
     font-size: 14px;
@@ -532,12 +537,6 @@
   <!-- Chat -->
   <main class="chat" id="chat" aria-live="polite"></main>
 
-  <!-- Starter chips -->
-  <div class="chips" id="chips">
-    <button class="chip" type="button" data-q="Tell me about Tom's experience.">Ask me about my experience</button>
-    <button class="chip" type="button" data-q="Tell me about Tom's AI project.">Ask me about my AI project</button>
-  </div>
-
   <!-- Input -->
   <div class="inputrow">
     <input id="input" type="text" placeholder="Type a message..." maxlength="1000" autocomplete="off" aria-label="Your message" />
@@ -561,7 +560,6 @@
   const chatEl  = document.getElementById("chat");
   const inputEl = document.getElementById("input");
   const sendEl  = document.getElementById("send");
-  const chipsEl = document.getElementById("chips");
 
   const backLink      = document.getElementById("backLink");
   const menuToggle    = document.getElementById("menuToggle");
@@ -583,7 +581,75 @@
   const GREETING =
     "Hello! I'm Tom's AI assistant. I can tell you about his experience, background, and the AI projects he's built. What would you like to know?";
 
-  addBubble("ai", GREETING);
+  // ================= Suggestion chips =================
+  // AI-generated follow-up chips grouped below a bot answer. Only one active
+  // set at a time; a session caps at 4 TAPPED sets (ignored sets don't count;
+  // starter chips never count). Resets with Reset Chat.
+  const SUGGESTION_CAP = 4;
+  const SUGGESTION_LABELS = { general: "Suggested questions", detailed: "Dig deeper" };
+  const STARTERS = [
+    { label: "Ask me about my experience", send: "Tell me about Tom's experience." },
+    { label: "Ask me about my AI project", send: "Tell me about Tom's AI project." },
+  ];
+  let tappedSets = 0;
+  let activeSuggestions = null;
+
+  function clearSuggestions() {
+    if (activeSuggestions) {
+      activeSuggestions.remove();
+      activeSuggestions = null;
+    }
+  }
+
+  // items: [{label, send}] — chip text and the message it sends can differ
+  // (starter chips); for AI suggestions they're the same question.
+  function showSuggestions(row, label, items, opts = {}) {
+    clearSuggestions();
+    if (!items || !items.length) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "suggestions";
+
+    const lab = document.createElement("span");
+    lab.className = "suggestion-label";
+    lab.textContent = label;
+    wrap.appendChild(lab);
+
+    items.forEach((item) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chip";
+      btn.textContent = item.label;
+      btn.addEventListener("click", () => {
+        if (busy) return;
+        if (!opts.starter) tappedSets += 1; // only tapped sets count toward the cap
+        clearSuggestions();
+        send(item.send);
+      });
+      wrap.appendChild(btn);
+    });
+
+    row.appendChild(wrap);
+    activeSuggestions = wrap;
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function showAiSuggestions(row, answerType, suggestions) {
+    if (tappedSets >= SUGGESTION_CAP) return; // cap reached: ignore further sets
+    if (!Array.isArray(suggestions)) return;
+    const items = suggestions
+      .filter((s) => typeof s === "string" && s.trim().length)
+      .slice(0, 2)
+      .map((q) => ({ label: q.trim(), send: q.trim() }));
+    showSuggestions(row, SUGGESTION_LABELS[answerType] || SUGGESTION_LABELS.general, items);
+  }
+
+  function showGreeting() {
+    const { row } = addBubble("ai", GREETING);
+    showSuggestions(row, "Try asking:", STARTERS, { starter: true });
+  }
+
+  showGreeting();
 
   function formatTime(date) {
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -634,7 +700,7 @@
     busy = true;
     sendEl.disabled = true;
     inputEl.value = "";
-    chipsEl.style.display = "none"; // hide starter chips after first message
+    clearSuggestions(); // typed-over sets vanish and don't count toward the cap
 
     addBubble("user", message);
     history.push({ role: "user", content: message });
@@ -664,6 +730,7 @@
       // Rate-limit warnings & outage notices don't belong in model context.
       if (!data.rateLimited && !data.unavailable) {
         history.push({ role: "assistant", content: reply });
+        showAiSuggestions(typing.row, data.answerType, data.suggestions);
       } else {
         history.pop(); // drop the blocked user message from history too
       }
@@ -682,10 +749,6 @@
   sendEl.addEventListener("click", () => send());
   inputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-  });
-  chipsEl.addEventListener("click", (e) => {
-    const chip = e.target.closest(".chip");
-    if (chip) send(chip.dataset.q);
   });
 
   // ================= Slide-out menu =================
@@ -758,9 +821,10 @@
     chatEl.innerHTML = "";
     history.length = 0;
     hasExported = false;            // fresh conversation, nothing downloaded yet
-    chipsEl.style.display = "";     // bring the starter chips back
+    tappedSets = 0;                 // suggestion cap resets with the chat
+    activeSuggestions = null;       // old node already gone via chat innerHTML wipe
     inputEl.value = "";
-    addBubble("ai", GREETING);
+    showGreeting();                 // greeting + starter chips back in the flow
   }
 
   // ================= Menu item actions (menu auto-closes after each) =====
