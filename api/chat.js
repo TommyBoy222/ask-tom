@@ -161,6 +161,29 @@ const REDIS_TOKEN =
   process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "";
 const redisEnabled = Boolean(REDIS_URL && REDIS_TOKEN);
 
+// Which env vars supplied the credentials — included in failure logs so
+// Vercel Logs shows exactly what configuration was in play.
+const REDIS_URL_SOURCE = process.env.UPSTASH_REDIS_REST_URL
+  ? "UPSTASH_REDIS_REST_URL"
+  : process.env.KV_REST_API_URL
+    ? "KV_REST_API_URL"
+    : "none";
+const REDIS_TOKEN_SOURCE = process.env.UPSTASH_REDIS_REST_TOKEN
+  ? "UPSTASH_REDIS_REST_TOKEN"
+  : process.env.KV_REST_API_TOKEN
+    ? "KV_REST_API_TOKEN"
+    : "none";
+
+// Diagnostic for silently-failing Redis: logs the real error (HTTP status +
+// response body, or network error message) so the root cause is visible in
+// Vercel Logs. Rate limiting still degrades gracefully after logging.
+function logRedisFailure(op, err) {
+  console.error(
+    `[redis] ${op} failed (url: ${REDIS_URL_SOURCE}, token: ${REDIS_TOKEN_SOURCE}, host: ${REDIS_URL.replace(/^https?:\/\//, "").split("/")[0]}): ` +
+      `${err && err.message ? err.message : err} — skipping rate limiting for this request`
+  );
+}
+
 async function redisCmd(cmd) {
   const res = await fetch(REDIS_URL, {
     method: "POST",
@@ -170,7 +193,10 @@ async function redisCmd(cmd) {
     },
     body: JSON.stringify(cmd),
   });
-  if (!res.ok) throw new Error(`Redis error ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${errBody.slice(0, 300)}`);
+  }
   const data = await res.json();
   return data.result;
 }
@@ -187,7 +213,8 @@ async function readState(key) {
   try {
     const raw = await redisCmd(["GET", key]);
     return raw ? { ...STATE_DEFAULTS, ...JSON.parse(raw) } : { ...STATE_DEFAULTS };
-  } catch {
+  } catch (err) {
+    logRedisFailure("GET", err);
     return { ...STATE_DEFAULTS };
   }
 }
@@ -201,8 +228,9 @@ async function writeState(key, state) {
       "EX",
       String(HOUR_SECONDS + 120),
     ]);
-  } catch {
+  } catch (err) {
     // Non-fatal: rate limiting is best-effort.
+    logRedisFailure("SET", err);
   }
 }
 
