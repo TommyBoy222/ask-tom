@@ -19,7 +19,16 @@
  *      • If Redis env vars are absent, rate limiting is skipped (deploy still works)
  *  - Caps conversation history at 10 turns
  *  - Catches API failures (e.g. spending cap hit) and serves a friendly message
+ *  - Streaming (body.stream === true): proxies Anthropic's stream as SSE —
+ *    "delta" events carry the human-visible reply text decoded live out of the
+ *    model's JSON envelope; a final "done" event carries the authoritative
+ *    {reply, answerType, suggestions}. Rate-limit warnings and outages still
+ *    return plain JSON (never a stream). Non-stream requests keep the old
+ *    JSON response, which doubles as the frontend's fallback path.
  */
+
+// Vercel: allow this Node function to stream its response instead of buffering.
+export const config = { supportsResponseStreaming: true };
 
 const SYSTEM_PROMPT = `ABOUT TOM
 
@@ -258,6 +267,59 @@ function clientIp(req) {
 }
 
 /**
+ * Incrementally decodes the contents of the "reply" string as the model's
+ * JSON envelope streams in, so the visitor can watch the answer appear
+ * live without ever seeing raw JSON. Escape sequences (\" \n \uXXXX ...)
+ * that split across chunks are buffered until complete. The final
+ * parseStructured() pass on the full output remains authoritative.
+ */
+function createReplyExtractor() {
+  let raw = "";
+  let pos = 0;
+  let inString = false;
+  let done = false;
+  const OPEN_RE = /"reply"\s*:\s*"/;
+  const ESCAPES = { '"': '"', "\\": "\\", "/": "/", n: "\n", t: "\t", r: "\r", b: "\b", f: "\f" };
+
+  return {
+    push(chunk) {
+      if (done) return "";
+      raw += chunk;
+      if (!inString) {
+        const m = OPEN_RE.exec(raw);
+        if (!m) return "";
+        inString = true;
+        pos = m.index + m[0].length;
+      }
+      let out = "";
+      while (pos < raw.length) {
+        const ch = raw[pos];
+        if (ch === "\\") {
+          if (pos + 1 >= raw.length) break; // escape split across chunks — wait
+          const esc = raw[pos + 1];
+          if (esc === "u") {
+            if (pos + 6 > raw.length) break; // \uXXXX incomplete — wait
+            const hex = raw.slice(pos + 2, pos + 6);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) out += String.fromCharCode(parseInt(hex, 16));
+            pos += 6;
+          } else {
+            out += ESCAPES[esc] !== undefined ? ESCAPES[esc] : esc;
+            pos += 2;
+          }
+        } else if (ch === '"') {
+          done = true; // closing quote of the reply value
+          break;
+        } else {
+          out += ch;
+          pos += 1;
+        }
+      }
+      return out;
+    },
+  };
+}
+
+/**
  * Parse the model's structured {reply, answerType, suggestions} JSON.
  * Falls back to treating the raw text as the reply (no suggestions) so a
  * malformed response never breaks the chat.
@@ -394,6 +456,7 @@ export default async function handler(req, res) {
   }
 
   // ---- Call Claude ------------------------------------------------------
+  const wantStream = body.stream === true;
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -407,6 +470,7 @@ export default async function handler(req, res) {
         max_tokens: MAX_TOKENS,
         system: SYSTEM_PROMPT,
         messages,
+        ...(wantStream ? { stream: true } : {}),
       }),
     });
 
@@ -417,22 +481,95 @@ export default async function handler(req, res) {
       return;
     }
 
-    const data = await response.json();
-    const raw = (data.content || [])
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-      .trim();
+    if (!wantStream) {
+      // Non-streaming path — unchanged; also serves as the client fallback.
+      const data = await response.json();
+      const raw = (data.content || [])
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+        .trim();
 
-    if (!raw) {
-      res.status(200).json({ reply: MSG_CAPACITY, answerType: "general", suggestions: [] });
+      if (!raw) {
+        res.status(200).json({ reply: MSG_CAPACITY, answerType: "general", suggestions: [] });
+        return;
+      }
+
+      const { reply, answerType, suggestions } = parseStructured(raw);
+      res.status(200).json({ reply: reply || MSG_CAPACITY, answerType, suggestions });
       return;
     }
 
-    const { reply, answerType, suggestions } = parseStructured(raw);
-    res.status(200).json({ reply: reply || MSG_CAPACITY, answerType, suggestions });
+    // ---- Streaming path: proxy Anthropic's stream as SSE ------------------
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    const emit = (event, payload) => {
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        /* client disconnected — keep draining upstream so nothing leaks */
+      }
+    };
+
+    let raw = "";
+    const extractor = createReplyExtractor();
+    try {
+      const decoder = new TextDecoder();
+      let buf = "";
+      for await (const chunk of response.body) {
+        buf += decoder.decode(chunk, { stream: true });
+        let sep;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          for (const line of frame.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            let evt;
+            try {
+              evt = JSON.parse(line.slice(5).trim());
+            } catch {
+              continue;
+            }
+            if (evt.type === "content_block_delta" && evt.delta && typeof evt.delta.text === "string") {
+              raw += evt.delta.text;
+              const visible = extractor.push(evt.delta.text);
+              if (visible) emit("delta", { text: visible });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // Upstream stream died mid-generation; salvage whatever arrived.
+      console.error("Anthropic stream interrupted:", err);
+    }
+
+    const parsed = parseStructured(raw.trim());
+    if (parsed.reply) {
+      emit("done", {
+        reply: parsed.reply,
+        answerType: parsed.answerType,
+        suggestions: parsed.suggestions,
+      });
+    } else {
+      emit("done", { reply: MSG_CAPACITY, answerType: "general", suggestions: [], unavailable: true });
+    }
+    res.end();
   } catch (err) {
     console.error("Anthropic API call failed:", err);
-    res.status(200).json({ reply: MSG_CAPACITY, unavailable: true });
+    if (res.headersSent) {
+      // Stream already began — finish it with a done event, never a broken hang.
+      try {
+        res.write(
+          `event: done\ndata: ${JSON.stringify({ reply: MSG_CAPACITY, answerType: "general", suggestions: [], unavailable: true })}\n\n`
+        );
+      } catch {}
+      res.end();
+    } else {
+      res.status(200).json({ reply: MSG_CAPACITY, unavailable: true });
+    }
   }
 }

@@ -180,6 +180,18 @@
     30% { transform: translateY(-4px); opacity: 1; }
   }
 
+  /* Terminal-style block cursor shown while a reply streams in */
+  .stream-cursor {
+    display: inline-block;
+    width: 0.55em;
+    height: 1.05em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: currentColor;
+    animation: cursor-blink 1s steps(1) infinite;
+  }
+  @keyframes cursor-blink { 50% { opacity: 0; } }
+
   /* ---------------- Timestamps ---------------- */
   .timestamp {
     font-size: 11px;
@@ -581,6 +593,9 @@
   const GREETING =
     "Hello! I'm Tom's AI assistant. I can tell you about his experience, background, and the AI projects he's built. What would you like to know?";
 
+  const MSG_FALLBACK =
+    "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.";
+
   // ================= Suggestion chips =================
   // AI-generated follow-up chips grouped below a bot answer. Only one active
   // set at a time; a session caps at 4 TAPPED sets (ignored sets don't count;
@@ -693,6 +708,45 @@
     typing.row.appendChild(ts);
   }
 
+  // ================= Streaming plumbing =================
+  let currentStream = null; // AbortController for the in-flight request
+
+  function autoScroll() {
+    // Keep growing text in view, but don't fight a visitor who scrolled up.
+    const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 60;
+    if (nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // Swap the typing-dots bubble for a live text bubble with a blinking block
+  // cursor. Returns the text node that streamed deltas append to.
+  function beginStreaming(typing) {
+    typing.bubble.classList.remove("typing");
+    typing.bubble.innerHTML = "";
+    const textNode = document.createTextNode("");
+    const cursor = document.createElement("span");
+    cursor.className = "stream-cursor";
+    typing.bubble.append(textNode, cursor);
+    return textNode;
+  }
+
+  // Minimal SSE frame parser; returns the unconsumed remainder of buf.
+  function consumeSSE(buf, onEvent) {
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      const frame = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      let event = "message";
+      let data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      try { onEvent(event, JSON.parse(data)); } catch { /* skip malformed frame */ }
+    }
+    return buf;
+  }
+
   // opts.fromChip: message came from a tapped suggestion chip. Chips only
   // render while tapped-sets < 4, so the flag is inherently bounded by the
   // cap; the backend exempts flagged messages from the 10s cooldown.
@@ -709,16 +763,62 @@
     history.push({ role: "user", content: message });
 
     const typing = addBubble("ai", "", { typing: true });
+    const abort = new AbortController();
+    currentStream = abort;
+
+    let streamedText = "";
+    let streamNode = null;
 
     try {
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, fromChip: !!opts.fromChip }),
+        body: JSON.stringify({ messages: history, fromChip: !!opts.fromChip, stream: true }),
+        signal: abort.signal,
       });
-      const data = await res.json();
-      const reply = data.reply ||
-        "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.";
+
+      const ctype = (res.headers.get("content-type") || "").toLowerCase();
+      let data = null;
+
+      if (ctype.includes("text/event-stream")) {
+        const onEvent = (event, payload) => {
+          if (event === "delta" && payload && typeof payload.text === "string") {
+            if (!streamNode) streamNode = beginStreaming(typing); // first token: dots → live text
+            streamNode.data += payload.text;
+            streamedText += payload.text;
+            autoScroll();
+          } else if (event === "done") {
+            data = payload;
+          }
+        };
+        if (res.body && res.body.getReader) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            buf = consumeSSE(buf, onEvent);
+          }
+        } else {
+          // No ReadableStream support: same events, parsed all at once —
+          // behaves exactly like the pre-streaming experience.
+          consumeSSE(await res.text(), onEvent);
+        }
+        // Stream ended without a done event: keep whatever text arrived.
+        if (!data) {
+          data = streamedText
+            ? { reply: streamedText, answerType: "general", suggestions: [] }
+            : { reply: MSG_FALLBACK, unavailable: true };
+        }
+      } else {
+        // Plain JSON response: rate-limit warning, outage notice, or a
+        // backend that chose not to stream. Same handling as before.
+        data = await res.json();
+      }
+
+      const reply = data.reply || MSG_FALLBACK;
 
       // Debug aid (visitors never see this — console only): makes it easy to
       // tell a real Anthropic API failure apart from normal rate limiting.
@@ -728,6 +828,7 @@
         console.info("[debug] Rate-limit response (expected behavior, not an error).");
       }
 
+      // Finalize: authoritative reply text, cursor removed, timestamp added.
       resolveTyping(typing, reply);
 
       // Rate-limit warnings & outage notices don't belong in model context.
@@ -737,11 +838,18 @@
       } else {
         history.pop(); // drop the blocked user message from history too
       }
-    } catch {
-      resolveTyping(typing,
-        "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.");
-      history.pop();
+    } catch (err) {
+      if (abort.signal.aborted) return; // Reset Chat aborted us; chat is already cleared
+      if (streamedText) {
+        // Connection died mid-reply: keep the partial answer, skip chips.
+        resolveTyping(typing, streamedText);
+        history.push({ role: "assistant", content: streamedText });
+      } else {
+        resolveTyping(typing, MSG_FALLBACK);
+        history.pop();
+      }
     } finally {
+      currentStream = null;
       busy = false;
       sendEl.disabled = false;
       chatEl.scrollTop = chatEl.scrollHeight;
@@ -821,6 +929,7 @@
   }
 
   function resetChat() {
+    if (currentStream) currentStream.abort(); // cleanly stop an in-progress stream
     chatEl.innerHTML = "";
     history.length = 0;
     hasExported = false;            // fresh conversation, nothing downloaded yet
