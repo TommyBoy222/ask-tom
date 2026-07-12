@@ -909,6 +909,15 @@
         console.info("[debug] Rate-limit response (expected behavior, not an error).");
       }
 
+      // Non-streamed replies (rate-limit warnings, capacity notices, JSON
+      // fallback) get the same typewriter reveal — the animation is
+      // client-side, so canned messages read identically to streamed ones.
+      if (!writer && reply) {
+        writer = createTypewriter(typing);
+        writer.push(reply);
+        await writer.finish();
+      }
+
       // Finalize: authoritative reply text, cursor removed, timestamp added.
       resolveTyping(typing, reply);
 
