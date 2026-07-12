@@ -10,6 +10,8 @@
  *  - Injects the system prompt on every request
  *  - Per-IP rate limiting (Upstash Redis via REST, if configured):
  *      • 1 message per 10 seconds
+ *      • Suggestion-chip taps (fromChip: true) bypass the 10s cooldown and
+ *        don't advance its timer; they still count toward the hourly cap
  *      • 15 messages per rolling hour window
  *      • Tiered warnings: 1st blocked attempt = explanation, 2nd+ = live countdown
  *      • Blocked attempts NEVER reset or extend the timers
@@ -295,6 +297,12 @@ export default async function handler(req, res) {
 
   const body = req.body || {};
   const messages = sanitizeHistory(body.messages);
+  // Chip taps are pre-vetted questions, not a spam vector, so they skip the
+  // 10s cooldown. The flag is a client-supplied optimization, not a
+  // credential: the frontend only sends it while under its 4-tapped-set cap
+  // (no chips render beyond that), and the 15/hour cap below always applies,
+  // so a spoofed flag buys nothing beyond 15 messages an hour.
+  const fromChip = body.fromChip === true;
   if (!messages.length || messages[messages.length - 1].role !== "user") {
     res.status(400).json({ error: "A user message is required" });
     return;
@@ -329,8 +337,8 @@ export default async function handler(req, res) {
       return;
     }
 
-    // --- Check 2: 10-second cooldown ---
-    if (state.last && now - state.last < COOLDOWN_SECONDS) {
+    // --- Check 2: 10-second cooldown (chip taps are exempt) ---
+    if (!fromChip && state.last && now - state.last < COOLDOWN_SECONDS) {
       const remainingSec = COOLDOWN_SECONDS - (now - state.last);
       let reply;
       if (!state.cooldownWarned) {
@@ -346,8 +354,12 @@ export default async function handler(req, res) {
     }
 
     // ---- Legitimate message: advance the timers ------------------------
-    state.last = now;
-    state.cooldownWarned = false;
+    // Chip taps neither check nor start the 10s cooldown timer; they only
+    // consume from the hourly budget.
+    if (!fromChip) {
+      state.last = now;
+      state.cooldownWarned = false;
+    }
     if (!state.hourStart) state.hourStart = now;
     state.hourCount += 1;
     await writeState(key, state);

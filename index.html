@@ -624,7 +624,7 @@
         if (busy) return;
         if (!opts.starter) tappedSets += 1; // only tapped sets count toward the cap
         clearSuggestions();
-        send(item.send);
+        send(item.send, { fromChip: true });
       });
       wrap.appendChild(btn);
     });
@@ -693,7 +693,10 @@
     typing.row.appendChild(ts);
   }
 
-  async function send(text) {
+  // opts.fromChip: message came from a tapped suggestion chip. Chips only
+  // render while tapped-sets < 4, so the flag is inherently bounded by the
+  // cap; the backend exempts flagged messages from the 10s cooldown.
+  async function send(text, opts = {}) {
     const message = (text ?? inputEl.value).trim();
     if (!message || busy) return;
 
@@ -711,7 +714,7 @@
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, fromChip: !!opts.fromChip }),
       });
       const data = await res.json();
       const reply = data.reply ||
