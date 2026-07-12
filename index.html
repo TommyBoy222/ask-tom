@@ -730,34 +730,62 @@
   }
 
   // Network chunks arrive as multi-word bursts, which looks jumpy if painted
-  // directly. This typewriter buffers them and reveals characters at a smooth
-  // rate that accelerates with backlog, so the display trails the live stream
-  // by ~half a second at most — including when a whole reply lands in one
-  // burst, which now gets a quick visible sweep instead of an instant dump.
+  // directly. This typewriter buffers them and reveals characters at a paced,
+  // capped rate. Pacing is time-based (chars-per-second × elapsed time), not
+  // per-frame, so dropped frames in a long chat reveal proportionally more
+  // characters at the same visual speed instead of stuttering.
+  const TW_BASE_CPS = 80;  // relaxed reading-speed baseline
+  const TW_MAX_CPS = 340;  // ceiling while catching up — never a sweep
+  const TW_DONE_CPS = 550; // drain speed once the stream has ended
+
   function createTypewriter(typing) {
     const textNode = beginStreaming(typing);
     let queue = "";
     let raf = null;
     let ended = false;
     let onDrained = null;
+    let last = 0;
+    let carry = 0; // fractional characters between frames
 
-    function step() {
+    // Smooth scroll-behavior restarts its animation on every scrollTop write,
+    // which fights per-frame streaming updates — use instant scrolling while
+    // the typewriter runs and restore the CSS default afterwards.
+    chatEl.style.scrollBehavior = "auto";
+    const restoreScroll = () => { chatEl.style.scrollBehavior = ""; };
+
+    function step(now) {
       raf = null;
+      const dt = Math.min(Math.max(now - last, 0) / 1000, 0.1);
+      last = now;
       if (document.hidden) {
         // Tab not visible: rAF is throttled and nobody's watching — catch up.
         textNode.data += queue;
         queue = "";
       } else {
-        // ~2 chars/frame baseline, proportional catch-up under backlog.
-        const n = Math.max(2, Math.ceil(queue.length / 25));
-        textNode.data += queue.slice(0, n);
-        queue = queue.slice(n);
-        autoScroll();
+        const rate = ended
+          ? TW_DONE_CPS
+          : Math.min(TW_MAX_CPS, TW_BASE_CPS + queue.length * 1.5);
+        carry += rate * dt;
+        const n = Math.floor(carry);
+        if (n > 0) {
+          carry -= n;
+          textNode.data += queue.slice(0, n);
+          queue = queue.slice(n);
+          autoScroll();
+        }
       }
       if (queue.length) raf = requestAnimationFrame(step);
-      else if (ended && onDrained) onDrained();
+      else {
+        carry = 0;
+        if (ended && onDrained) onDrained();
+      }
     }
-    const pump = () => { if (!raf) raf = requestAnimationFrame(step); };
+    const pump = () => {
+      if (!raf) {
+        last = performance.now(); // fresh clock so idle gaps don't burst
+        raf = requestAnimationFrame(step);
+      }
+    };
 
     return {
       push(t) { queue += t; pump(); },
@@ -766,13 +794,18 @@
         // throttled tab can never hold the reply hostage).
         ended = true;
         return new Promise((resolve) => {
-          if (!queue.length && !raf) { resolve(); return; }
-          onDrained = resolve;
+          const settle = () => { restoreScroll(); resolve(); };
+          if (!queue.length && !raf) { settle(); return; }
+          onDrained = settle;
           pump();
-          setTimeout(() => { queue = ""; resolve(); }, 1500);
+          setTimeout(() => { queue = ""; settle(); }, 2500);
         });
       },
-      stop() { if (raf) cancelAnimationFrame(raf); queue = ""; },
+      stop() {
+        if (raf) cancelAnimationFrame(raf);
+        queue = "";
+        restoreScroll();
+      },
     };
   }
 
