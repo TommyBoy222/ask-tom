@@ -729,6 +729,53 @@
     return textNode;
   }
 
+  // Network chunks arrive as multi-word bursts, which looks jumpy if painted
+  // directly. This typewriter buffers them and reveals characters at a smooth
+  // rate that accelerates with backlog, so the display trails the live stream
+  // by ~half a second at most — including when a whole reply lands in one
+  // burst, which now gets a quick visible sweep instead of an instant dump.
+  function createTypewriter(typing) {
+    const textNode = beginStreaming(typing);
+    let queue = "";
+    let raf = null;
+    let ended = false;
+    let onDrained = null;
+
+    function step() {
+      raf = null;
+      if (document.hidden) {
+        // Tab not visible: rAF is throttled and nobody's watching — catch up.
+        textNode.data += queue;
+        queue = "";
+      } else {
+        // ~2 chars/frame baseline, proportional catch-up under backlog.
+        const n = Math.max(2, Math.ceil(queue.length / 25));
+        textNode.data += queue.slice(0, n);
+        queue = queue.slice(n);
+        autoScroll();
+      }
+      if (queue.length) raf = requestAnimationFrame(step);
+      else if (ended && onDrained) onDrained();
+    }
+    const pump = () => { if (!raf) raf = requestAnimationFrame(step); };
+
+    return {
+      push(t) { queue += t; pump(); },
+      finish() {
+        // Resolves once everything queued has been drawn (capped so a
+        // throttled tab can never hold the reply hostage).
+        ended = true;
+        return new Promise((resolve) => {
+          if (!queue.length && !raf) { resolve(); return; }
+          onDrained = resolve;
+          pump();
+          setTimeout(() => { queue = ""; resolve(); }, 1500);
+        });
+      },
+      stop() { if (raf) cancelAnimationFrame(raf); queue = ""; },
+    };
+  }
+
   // Minimal SSE frame parser; returns the unconsumed remainder of buf.
   function consumeSSE(buf, onEvent) {
     let idx;
@@ -767,7 +814,7 @@
     currentStream = abort;
 
     let streamedText = "";
-    let streamNode = null;
+    let writer = null;
 
     try {
       const res = await fetch(WORKER_URL, {
@@ -783,10 +830,9 @@
       if (ctype.includes("text/event-stream")) {
         const onEvent = (event, payload) => {
           if (event === "delta" && payload && typeof payload.text === "string") {
-            if (!streamNode) streamNode = beginStreaming(typing); // first token: dots → live text
-            streamNode.data += payload.text;
+            if (!writer) writer = createTypewriter(typing); // first token: dots → live text
+            writer.push(payload.text);
             streamedText += payload.text;
-            autoScroll();
           } else if (event === "done") {
             data = payload;
           }
@@ -806,6 +852,8 @@
           // behaves exactly like the pre-streaming experience.
           consumeSSE(await res.text(), onEvent);
         }
+        // Let the typewriter finish drawing what's queued before finalizing.
+        if (writer) await writer.finish();
         // Stream ended without a done event: keep whatever text arrived.
         if (!data) {
           data = streamedText
@@ -839,6 +887,7 @@
         history.pop(); // drop the blocked user message from history too
       }
     } catch (err) {
+      if (writer) writer.stop();
       if (abort.signal.aborted) return; // Reset Chat aborted us; chat is already cleared
       if (streamedText) {
         // Connection died mid-reply: keep the partial answer, skip chips.
