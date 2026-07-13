@@ -428,6 +428,13 @@
     margin: 8px 0 16px; /* top margin clears the X button */
     white-space: nowrap;
   }
+  /* Info modals (Data & Privacy) show a wrapping paragraph, not a one-liner */
+  .modal.info .modal-text {
+    white-space: normal;
+    text-align: left;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
   @media (max-width: 379px) {
     .modal-text { font-size: 12px; } /* keeps the longer reset message on one line */
   }
@@ -553,6 +560,10 @@
       <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       Reset Chat
     </button>
+    <button class="menu-item" id="menuPrivacy" type="button">
+      <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Data &amp; Privacy
+    </button>
   </nav>
 
   <!-- Confirmation modal (Reset Chat + leave prompt) -->
@@ -569,8 +580,8 @@
     </div>
   </div>
 
-  <!-- Disclaimer -->
-  <p class="disclaimer">I'm an AI chat Tom built to share his work and projects.<br>Chats aren't linked to your LinkedIn or saved after you leave.</p>
+  <!-- Disclaimer (privacy details moved to the Data & Privacy menu item) -->
+  <p class="disclaimer">I'm an AI chat Tom built to share his work and projects.</p>
 
   <!-- Chat -->
   <main class="chat" id="chat" aria-live="polite"></main>
@@ -611,6 +622,7 @@
   const modalConfirm  = document.getElementById("modalConfirm");
   const modalClose     = document.getElementById("modalClose");
   const modalCancel   = document.getElementById("modalCancel");
+  const modalActions  = document.querySelector(".modal-actions");
 
   backLink.href = LINKEDIN_URL;
 
@@ -1179,11 +1191,16 @@
     modalConfirm.classList.toggle("btn-danger", !!opts.danger);
     modalConfirm.classList.toggle("btn-outline", !opts.danger);
 
+    // Info-only modals (Data & Privacy) have no action buttons — just the X —
+    // and their text wraps as a paragraph instead of a one-line prompt.
+    modalActions.style.display = opts.infoOnly ? "none" : "";
+    document.querySelector(".modal").classList.toggle("info", !!opts.infoOnly);
+
     // Some modals (Reset) don't need an X — Cancel already dismisses.
     modalClose.style.display = opts.hideClose ? "none" : "";
 
     modalBackdrop.classList.add("open");
-    modalConfirm.focus();
+    (opts.infoOnly ? modalClose : modalConfirm).focus();
   }
   function closeModal() {
     modalBackdrop.classList.remove("open");
@@ -1248,6 +1265,14 @@
   document.getElementById("menuExport").addEventListener("click", () => {
     exportChat();
     setMenu(false);
+  });
+
+  const PRIVACY_TEXT =
+    "Anonymous usage data may be collected to help improve this chat's answers over time. None of it identifies you: chats aren't linked to your LinkedIn or saved after you leave. Your conversation lives only in this browser tab and disappears when you close it, and no account or profile is ever created.";
+
+  document.getElementById("menuPrivacy").addEventListener("click", () => {
+    setMenu(false);
+    showModal(PRIVACY_TEXT, "", "", null, null, { infoOnly: true });
   });
 
   document.getElementById("menuReset").addEventListener("click", () => {
