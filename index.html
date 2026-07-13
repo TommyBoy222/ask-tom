@@ -434,6 +434,15 @@
     text-align: left;
     font-size: 13.5px;
     line-height: 1.55;
+    margin-top: 30px; /* clears the enlarged X comfortably */
+  }
+  .modal.info .modal-close {
+    width: 34px;
+    height: 34px;
+  }
+  .modal.info .modal-close svg {
+    width: 20px;
+    height: 20px;
   }
   @media (max-width: 379px) {
     .modal-text { font-size: 12px; } /* keeps the longer reset message on one line */
@@ -1171,6 +1180,13 @@
     setMenu(!menuEl.classList.contains("open"));
   });
   menuBackdrop.addEventListener("click", () => setMenu(false));
+  // Backdrop tap dismisses info-only modals (Data & Privacy). Confirm modals
+  // (Reset, leave prompt) still require an explicit button, X, or Escape.
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop && document.querySelector(".modal").classList.contains("info")) {
+      closeModal();
+    }
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (modalBackdrop.classList.contains("open")) closeModal();
