@@ -612,12 +612,14 @@
   ];
   let tappedSets = 0;
   let activeSuggestions = null;
+  let activeSuggestionsData = null; // serializable copy of the active set, for persistence
 
   function clearSuggestions() {
     if (activeSuggestions) {
       activeSuggestions.remove();
       activeSuggestions = null;
     }
+    activeSuggestionsData = null;
   }
 
   // items: [{label, send}] — chip text and the message it sends can differ
@@ -650,6 +652,7 @@
 
     row.appendChild(wrap);
     activeSuggestions = wrap; // no scroll: chips must never yank the reader
+    activeSuggestionsData = { label, items, starter: !!opts.starter };
   }
 
   function showAiSuggestions(row, answerType, suggestions) {
@@ -667,7 +670,52 @@
     showSuggestions(row, "Try asking:", STARTERS, { starter: true });
   }
 
-  showGreeting();
+  // ================= Session persistence =================
+  // The conversation survives a refresh or accidental navigation within the
+  // tab. Everything lives in the visitor's own sessionStorage (client-side,
+  // per-tab, gone when the tab closes) — nothing is stored server-side, which
+  // keeps the "chats aren't saved after you leave" promise true.
+  const STORE_KEY = "askTomChat.v1";
+
+  function persist() {
+    try {
+      const transcript = [...chatEl.querySelectorAll(".bubble-row")].map((row) => ({
+        who: row.classList.contains("user") ? "user" : "ai",
+        text: row.querySelector(".bubble").textContent,
+        ts: row.querySelector(".timestamp")?.textContent || "",
+      }));
+      sessionStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({ v: 1, history, transcript, tappedSets, suggestions: activeSuggestionsData })
+      );
+    } catch { /* storage unavailable (private mode, quota) — chat still works */ }
+  }
+
+  function restore() {
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(STORE_KEY)); } catch { /* corrupt — start fresh */ }
+    if (!saved || saved.v !== 1 || !Array.isArray(saved.transcript) || !saved.transcript.length) {
+      return false;
+    }
+    saved.transcript.forEach((m) => {
+      addBubble(m.who === "user" ? "user" : "ai", m.text, { timestampText: m.ts });
+    });
+    if (Array.isArray(saved.history)) history.push(...saved.history);
+    // A turn interrupted mid-generation leaves a dangling user message whose
+    // answer was lost — drop it from model context (its bubble isn't saved
+    // either, since persistence only runs at stable points).
+    while (history.length && history[history.length - 1].role === "user") history.pop();
+    tappedSets = Number.isFinite(saved.tappedSets) ? saved.tappedSets : 0;
+    const s = saved.suggestions;
+    if (s && Array.isArray(s.items) && s.items.length) {
+      const aiRows = chatEl.querySelectorAll(".bubble-row.ai");
+      const lastAiRow = aiRows[aiRows.length - 1];
+      if (lastAiRow) showSuggestions(lastAiRow, s.label, s.items, { starter: !!s.starter });
+    }
+    return true;
+  }
+
+  if (!restore()) showGreeting();
 
   function formatTime(date) {
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -687,11 +735,12 @@
     }
     row.appendChild(el);
 
-    // Typing indicator gets no timestamp — only real messages do.
+    // Typing indicator gets no timestamp — only real messages do. Restored
+    // messages keep their original timestamp via opts.timestampText.
     if (!opts.typing) {
       const ts = document.createElement("span");
       ts.className = "timestamp";
-      ts.textContent = formatTime(new Date());
+      ts.textContent = opts.timestampText || formatTime(new Date());
       row.appendChild(ts);
     }
 
@@ -983,7 +1032,10 @@
       currentStream = null;
       busy = false;
       sendEl.disabled = false;
-      if (!abort.signal.aborted) settleSpacer(userRow);
+      if (!abort.signal.aborted) {
+        settleSpacer(userRow);
+        persist(); // conversation survives a refresh from this point
+      }
       inputEl.focus();
     }
   }
@@ -1067,6 +1119,8 @@
     hasExported = false;            // fresh conversation, nothing downloaded yet
     tappedSets = 0;                 // suggestion cap resets with the chat
     activeSuggestions = null;       // old node already gone via chat innerHTML wipe
+    activeSuggestionsData = null;
+    try { sessionStorage.removeItem(STORE_KEY); } catch {}
     inputEl.value = "";
     showGreeting();                 // greeting + starter chips back in the flow
   }
