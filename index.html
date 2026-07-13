@@ -180,17 +180,13 @@
     30% { transform: translateY(-4px); opacity: 1; }
   }
 
-  /* Terminal-style block cursor shown while a reply streams in */
-  .stream-cursor {
-    display: inline-block;
-    width: 0.55em;
-    height: 1.05em;
-    margin-left: 1px;
-    vertical-align: text-bottom;
-    background: currentColor;
-    animation: cursor-blink 1s steps(1) infinite;
+  /* Streamed replies reveal word-by-word: each word gently fades in as it
+     arrives — the motion itself signals activity, so no cursor is needed. */
+  .word-fade {
+    opacity: 0;
+    animation: word-in 0.35s ease-out forwards;
   }
-  @keyframes cursor-blink { 50% { opacity: 0; } }
+  @keyframes word-in { to { opacity: 1; } }
 
   /* ---------------- Timestamps ---------------- */
   .timestamp {
@@ -479,6 +475,7 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
     .chat { scroll-behavior: auto; }
+    .word-fade { animation: none; opacity: 1; }
   }
 </style>
 </head>
@@ -698,7 +695,7 @@
   }
 
   function resolveTyping(typing, text) {
-    typing.bubble.classList.remove("typing");
+    typing.bubble.classList.remove("typing", "streaming");
     typing.bubble.innerHTML = "";
     typing.bubble.textContent = text;
 
@@ -717,41 +714,47 @@
     if (nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
   }
 
-  // Swap the typing-dots bubble for a live text bubble with a blinking block
-  // cursor. Returns the text node that streamed deltas append to.
+  // Swap the typing-dots bubble for a live streaming bubble that words are
+  // appended into. The "streaming" class marks an in-progress reveal.
   function beginStreaming(typing) {
     typing.bubble.classList.remove("typing");
+    typing.bubble.classList.add("streaming");
     typing.bubble.innerHTML = "";
-    const textNode = document.createTextNode("");
-    const cursor = document.createElement("span");
-    cursor.className = "stream-cursor";
-    typing.bubble.append(textNode, cursor);
-    return textNode;
+    return typing.bubble;
   }
 
   // Network chunks arrive as multi-word bursts, which looks jumpy if painted
-  // directly. This typewriter buffers them and reveals characters at a paced,
-  // capped rate. Pacing is time-based (chars-per-second × elapsed time), not
-  // per-frame, so dropped frames in a long chat reveal proportionally more
-  // characters at the same visual speed instead of stuttering.
+  // directly. This pacer buffers them and reveals WHOLE WORDS on a paced,
+  // capped budget — each word lands as a .word-fade span that gently fades in
+  // (Gemini-style). The budget is time-based (chars-per-second × elapsed), so
+  // dropped frames in a long chat release proportionally more words at the
+  // same visual speed instead of stuttering.
   const TW_BASE_CPS = 80;  // relaxed reading-speed baseline
   const TW_MAX_CPS = 340;  // ceiling while catching up — never a sweep
   const TW_DONE_CPS = 550; // drain speed once the stream has ended
+  const TW_TOKEN_RE = /^(\s+|\S+\s+|\S+$)/; // whitespace run | word+space | final word
 
   function createTypewriter(typing) {
-    const textNode = beginStreaming(typing);
+    const bubble = beginStreaming(typing);
     let queue = "";
     let raf = null;
     let ended = false;
     let onDrained = null;
     let last = 0;
-    let carry = 0; // fractional characters between frames
+    let carry = 0; // unspent character budget between frames
 
     // Smooth scroll-behavior restarts its animation on every scrollTop write,
     // which fights per-frame streaming updates — use instant scrolling while
-    // the typewriter runs and restore the CSS default afterwards.
+    // the reveal runs and restore the CSS default afterwards.
     chatEl.style.scrollBehavior = "auto";
     const restoreScroll = () => { chatEl.style.scrollBehavior = ""; };
+
+    function emitToken(tok) {
+      const span = document.createElement("span");
+      span.className = "word-fade";
+      span.textContent = tok;
+      bubble.appendChild(span);
+    }
 
     function step(now) {
       raf = null;
@@ -759,24 +762,42 @@
       last = now;
       if (document.hidden) {
         // Tab not visible: rAF is throttled and nobody's watching — catch up.
-        textNode.data += queue;
+        emitToken(queue);
         queue = "";
       } else {
         const rate = ended
           ? TW_DONE_CPS
           : Math.min(TW_MAX_CPS, TW_BASE_CPS + queue.length * 1.5);
         carry += rate * dt;
-        const n = Math.floor(carry);
-        if (n > 0) {
-          carry -= n;
-          textNode.data += queue.slice(0, n);
-          queue = queue.slice(n);
-          autoScroll();
+        let emitted = false;
+        let holding = false;
+        for (;;) {
+          const m = TW_TOKEN_RE.exec(queue);
+          if (!m) break;
+          const tok = m[0];
+          // A trailing run with no whitespace after it may be half a word
+          // still arriving — hold it until more text or the stream ends.
+          if (!ended && tok.length === queue.length && /\S$/.test(tok)) {
+            holding = true;
+            break;
+          }
+          if (carry < tok.length) break;
+          carry -= tok.length;
+          queue = queue.slice(tok.length);
+          emitToken(tok);
+          emitted = true;
+        }
+        if (emitted) autoScroll();
+        if (holding) {
+          // Pause instead of spinning frames (and banking budget) while we
+          // wait for the rest of the word; the next push() re-pumps.
+          carry = Math.min(carry, 10);
+          return;
         }
       }
       if (queue.length) raf = requestAnimationFrame(step);
       else {
-        carry = 0;
+        carry = Math.min(carry, 10); // don't bank a burst while idle
         if (ended && onDrained) onDrained();
       }
     }
@@ -790,11 +811,12 @@
     return {
       push(t) { queue += t; pump(); },
       finish() {
-        // Resolves once everything queued has been drawn (capped so a
-        // throttled tab can never hold the reply hostage).
+        // Resolves once everything queued is revealed, plus a short settle
+        // so the last words finish fading before the bubble is finalized
+        // (hard-capped so a throttled tab can't hold the reply hostage).
         ended = true;
         return new Promise((resolve) => {
-          const settle = () => { restoreScroll(); resolve(); };
+          const settle = () => { restoreScroll(); setTimeout(resolve, 300); };
           if (!queue.length && !raf) { settle(); return; }
           onDrained = settle;
           pump();
