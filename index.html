@@ -180,6 +180,35 @@
     30% { transform: translateY(-4px); opacity: 1; }
   }
 
+  /* "More below" hint: a small floating ↓ that appears when real content
+     (not blank spacer) extends below the viewport. Tap scrolls to newest. */
+  #scrollHint {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 88px; /* floats just above the input row */
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bubble-ai);
+    color: var(--text);
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+  }
+  #scrollHint.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   /* Streamed replies reveal word-by-word: each word gently fades in as it
      arrives — the motion itself signals activity, so no cursor is needed. */
   .word-fade {
@@ -546,6 +575,8 @@
   <!-- Chat -->
   <main class="chat" id="chat" aria-live="polite"></main>
 
+  <button id="scrollHint" type="button" aria-label="Scroll to newest messages">&#8595;</button>
+
   <!-- Input -->
   <div class="inputrow">
     <input id="input" type="text" placeholder="Type a message..." maxlength="1000" autocomplete="off" aria-label="Your message" />
@@ -569,6 +600,7 @@
   const chatEl  = document.getElementById("chat");
   const inputEl = document.getElementById("input");
   const sendEl  = document.getElementById("send");
+  const scrollHint = document.getElementById("scrollHint");
 
   const backLink      = document.getElementById("backLink");
   const menuToggle    = document.getElementById("menuToggle");
@@ -653,6 +685,7 @@
     row.appendChild(wrap);
     activeSuggestions = wrap; // no scroll: chips must never yank the reader
     activeSuggestionsData = { label, items, starter: !!opts.starter };
+    updateScrollHint();
   }
 
   // A failed turn offers a single "Try again" chip below the error bubble so
@@ -810,6 +843,28 @@
     typing.row.appendChild(ts);
   }
 
+  // ================= "More below" hint =================
+  // A floating ↓ appears when real content (not the blank tail spacer)
+  // extends below the viewport — e.g. a long answer generating off-screen
+  // under the top-anchored scroll model. Tapping glides to the newest content.
+  function updateScrollHint() {
+    const contentBottom = spacer.getBoundingClientRect().top; // content ends where the spacer begins
+    const viewBottom = chatEl.getBoundingClientRect().bottom;
+    scrollHint.classList.toggle("show", contentBottom - viewBottom > 24);
+  }
+
+  chatEl.addEventListener("scroll", updateScrollHint, { passive: true });
+  window.addEventListener("resize", updateScrollHint);
+
+  scrollHint.addEventListener("click", () => {
+    const target =
+      chatEl.scrollTop +
+      spacer.getBoundingClientRect().top -
+      chatEl.getBoundingClientRect().bottom +
+      8;
+    chatEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  });
+
   // ================= Streaming plumbing =================
   let currentStream = null; // AbortController for the in-flight request
 
@@ -879,7 +934,9 @@
           emitToken(tok);
         }
         // Note: no auto-scroll here — the view stays anchored where the
-        // reader is; overflow grows downward off-screen (top-anchored UX).
+        // reader is; overflow grows downward off-screen (top-anchored UX),
+        // with the ↓ hint signalling that more content exists below.
+        updateScrollHint();
         if (holding) {
           // Pause instead of spinning frames (and banking budget) while we
           // wait for the rest of the word; the next push() re-pumps.
@@ -1067,6 +1124,7 @@
       sendEl.disabled = false;
       if (!abort.signal.aborted) {
         settleSpacer(userRow);
+        updateScrollHint();
         persist(); // conversation survives a refresh from this point
       }
       inputEl.focus();
@@ -1156,6 +1214,7 @@
     try { sessionStorage.removeItem(STORE_KEY); } catch {}
     inputEl.value = "";
     showGreeting();                 // greeting + starter chips back in the flow
+    updateScrollHint();
   }
 
   // ================= Menu item actions (menu auto-closes after each) =====
