@@ -428,9 +428,9 @@
     margin: 8px 0 16px; /* top margin clears the X button */
     white-space: nowrap;
   }
-  /* Info modals (Data & Privacy) show a wrapping paragraph, not a one-liner */
+  /* Info modals (Data & Privacy) show wrapping paragraphs, not a one-liner */
   .modal.info .modal-text {
-    white-space: normal;
+    white-space: pre-line; /* honors \n\n paragraph breaks in the copy */
     text-align: left;
     font-size: 13.5px;
     line-height: 1.55;
@@ -1268,7 +1268,7 @@
   });
 
   const PRIVACY_TEXT =
-    "Anonymous usage data may be collected to help improve this chat's answers over time. None of it identifies you: chats aren't linked to your LinkedIn or saved after you leave. Your conversation lives only in this browser tab and disappears when you close it, and no account or profile is ever created.";
+    "Anonymous usage data may be collected to help improve this chat's answers over time. None of it identifies you: chats aren't linked to your LinkedIn or saved after you leave.\n\nYour conversation lives only in this browser tab and disappears when you close it, and no account or profile is ever created.";
 
   document.getElementById("menuPrivacy").addEventListener("click", () => {
     setMenu(false);
