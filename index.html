@@ -587,6 +587,13 @@
   let busy = false;
   let hasExported = false; // tracks whether this session's chat was downloaded
 
+  // Tail spacer: lets a fresh user message anchor near the top of the view
+  // even when there isn't enough content below it yet (ChatGPT-style). It is
+  // kept as the chat's last child and sized in anchorToTop/settleSpacer.
+  const spacer = document.createElement("div");
+  spacer.className = "chat-spacer";
+  spacer.style.flexShrink = "0";
+
   const GREETING =
     "Hello! I'm Tom's AI assistant. I can tell you about his experience, background, and the AI projects he's built. What would you like to know?";
 
@@ -642,8 +649,7 @@
     });
 
     row.appendChild(wrap);
-    activeSuggestions = wrap;
-    chatEl.scrollTop = chatEl.scrollHeight;
+    activeSuggestions = wrap; // no scroll: chips must never yank the reader
   }
 
   function showAiSuggestions(row, answerType, suggestions) {
@@ -690,8 +696,33 @@
     }
 
     chatEl.appendChild(row);
-    chatEl.scrollTop = chatEl.scrollHeight;
+    chatEl.appendChild(spacer); // keep the tail spacer last
     return { row, bubble: el };
+  }
+
+  // On submit, glide the new user message to the top of the view; the reply
+  // then renders downward from there. The spacer is grown to a full viewport
+  // during generation so the anchor position always exists.
+  function anchorToTop(row) {
+    spacer.style.height = chatEl.clientHeight + "px";
+    const target =
+      chatEl.scrollTop +
+      row.getBoundingClientRect().top -
+      chatEl.getBoundingClientRect().top -
+      8;
+    chatEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  }
+
+  // After the reply (and chips) land, shrink the spacer to exactly what's
+  // needed to keep the current anchor valid — no excess blank scroll region,
+  // and no view jump for a reader parked at the top.
+  function settleSpacer(row) {
+    if (!row || !row.isConnected) {
+      spacer.style.height = "0px";
+      return;
+    }
+    const below = spacer.getBoundingClientRect().top - row.getBoundingClientRect().top;
+    spacer.style.height = Math.max(0, chatEl.clientHeight - below - 8) + "px";
   }
 
   function resolveTyping(typing, text) {
@@ -707,12 +738,6 @@
 
   // ================= Streaming plumbing =================
   let currentStream = null; // AbortController for the in-flight request
-
-  function autoScroll() {
-    // Keep growing text in view, but don't fight a visitor who scrolled up.
-    const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 60;
-    if (nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
-  }
 
   // Swap the typing-dots bubble for a live streaming bubble that words are
   // appended into. The "streaming" class marks an in-progress reveal.
@@ -743,12 +768,6 @@
     let last = 0;
     let carry = 0; // unspent character budget between frames
 
-    // Smooth scroll-behavior restarts its animation on every scrollTop write,
-    // which fights per-frame streaming updates — use instant scrolling while
-    // the reveal runs and restore the CSS default afterwards.
-    chatEl.style.scrollBehavior = "auto";
-    const restoreScroll = () => { chatEl.style.scrollBehavior = ""; };
-
     function emitToken(tok) {
       const span = document.createElement("span");
       span.className = "word-fade";
@@ -769,7 +788,6 @@
           ? TW_DONE_CPS
           : Math.min(TW_MAX_CPS, TW_BASE_CPS + queue.length * 1.5);
         carry += rate * dt;
-        let emitted = false;
         let holding = false;
         for (;;) {
           const m = TW_TOKEN_RE.exec(queue);
@@ -785,9 +803,9 @@
           carry -= tok.length;
           queue = queue.slice(tok.length);
           emitToken(tok);
-          emitted = true;
         }
-        if (emitted) autoScroll();
+        // Note: no auto-scroll here — the view stays anchored where the
+        // reader is; overflow grows downward off-screen (top-anchored UX).
         if (holding) {
           // Pause instead of spinning frames (and banking budget) while we
           // wait for the rest of the word; the next push() re-pumps.
@@ -816,7 +834,7 @@
         // (hard-capped so a throttled tab can't hold the reply hostage).
         ended = true;
         return new Promise((resolve) => {
-          const settle = () => { restoreScroll(); setTimeout(resolve, 300); };
+          const settle = () => setTimeout(resolve, 300);
           if (!queue.length && !raf) { settle(); return; }
           onDrained = settle;
           pump();
@@ -826,7 +844,6 @@
       stop() {
         if (raf) cancelAnimationFrame(raf);
         queue = "";
-        restoreScroll();
       },
     };
   }
@@ -861,10 +878,11 @@
     inputEl.value = "";
     clearSuggestions(); // typed-over sets vanish and don't count toward the cap
 
-    addBubble("user", message);
+    const userRow = addBubble("user", message).row;
     history.push({ role: "user", content: message });
 
     const typing = addBubble("ai", "", { typing: true });
+    anchorToTop(userRow); // glide the new message to the top of the view
     const abort = new AbortController();
     currentStream = abort;
 
@@ -965,7 +983,7 @@
       currentStream = null;
       busy = false;
       sendEl.disabled = false;
-      chatEl.scrollTop = chatEl.scrollHeight;
+      if (!abort.signal.aborted) settleSpacer(userRow);
       inputEl.focus();
     }
   }
@@ -1043,6 +1061,7 @@
 
   function resetChat() {
     if (currentStream) currentStream.abort(); // cleanly stop an in-progress stream
+    spacer.style.height = "0px";
     chatEl.innerHTML = "";
     history.length = 0;
     hasExported = false;            // fresh conversation, nothing downloaded yet
