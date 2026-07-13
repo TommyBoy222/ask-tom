@@ -655,6 +655,31 @@
     activeSuggestionsData = { label, items, starter: !!opts.starter };
   }
 
+  // A failed turn offers a single "Try again" chip below the error bubble so
+  // the visitor can resend without retyping. Not an AI suggestion set: no
+  // label, never counts toward the 4-set cap, and not persisted across a
+  // refresh. Tapping removes the error bubble and reuses the original user
+  // bubble; the resend carries fromChip so a quick retry isn't cooldown-blocked.
+  function showRetryChip(row, message, userRow) {
+    clearSuggestions();
+    const wrap = document.createElement("div");
+    wrap.className = "suggestions";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "chip";
+    btn.textContent = "Try again";
+    btn.addEventListener("click", () => {
+      if (busy) return;
+      clearSuggestions();
+      row.remove(); // the retry replaces the error bubble
+      send(message, { fromChip: true, reuseUserRow: userRow });
+    });
+    wrap.appendChild(btn);
+    row.appendChild(wrap);
+    activeSuggestions = wrap; // typing over it clears it like any other set
+    activeSuggestionsData = null;
+  }
+
   function showAiSuggestions(row, answerType, suggestions) {
     if (tappedSets >= SUGGESTION_CAP) return; // cap reached: ignore further sets
     if (!Array.isArray(suggestions)) return;
@@ -927,7 +952,11 @@
     inputEl.value = "";
     clearSuggestions(); // typed-over sets vanish and don't count toward the cap
 
-    const userRow = addBubble("user", message).row;
+    // Retries reuse the original user bubble instead of adding a duplicate.
+    const userRow =
+      opts.reuseUserRow && opts.reuseUserRow.isConnected
+        ? opts.reuseUserRow
+        : addBubble("user", message).row;
     history.push({ role: "user", content: message });
 
     const typing = addBubble("ai", "", { typing: true });
@@ -1016,6 +1045,9 @@
         showAiSuggestions(typing.row, data.answerType, data.suggestions);
       } else {
         history.pop(); // drop the blocked user message from history too
+        // Genuine failures (not cooldown warnings — retrying those would just
+        // bounce off the limiter again) get a single "Try again" chip.
+        if (data.unavailable) showRetryChip(typing.row, message, userRow);
       }
     } catch (err) {
       if (writer) writer.stop();
@@ -1027,6 +1059,7 @@
       } else {
         resolveTyping(typing, MSG_FALLBACK);
         history.pop();
+        showRetryChip(typing.row, message, userRow);
       }
     } finally {
       currentStream = null;
