@@ -773,7 +773,16 @@
     return true;
   }
 
-  if (!restore()) showGreeting();
+  if (!restore()) {
+    showGreeting();
+  } else {
+    // A restored conversation opens at the newest message, not the top —
+    // instant jump (no animated sweep) so the load feels seamless.
+    chatEl.style.scrollBehavior = "auto";
+    chatEl.scrollTop = chatEl.scrollHeight;
+    chatEl.style.scrollBehavior = "";
+    updateScrollHint();
+  }
 
   function formatTime(date) {
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
