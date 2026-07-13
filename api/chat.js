@@ -372,6 +372,16 @@ function parseStructured(raw) {
   }
 }
 
+// Cache observability: shows in Vercel Logs whether prompt caching is
+// engaging (read>0 = hit, wrote>0 = cache write, both 0 = prompt below the
+// model's minimum cacheable size and the marker was silently ignored).
+function logCacheUsage(usage) {
+  if (!usage) return;
+  console.log(
+    `[cache] read=${usage.cache_read_input_tokens ?? 0} wrote=${usage.cache_creation_input_tokens ?? 0} uncached=${usage.input_tokens ?? 0}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -468,7 +478,18 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT,
+        // Prompt caching: the system prompt is identical on every request, so
+        // mark it cacheable — repeat requests within the TTL read it at ~0.1x
+        // input price. NOTE: Haiku 4.5's minimum cacheable prefix is 4096
+        // tokens; below that the marker is silently ignored (no error). The
+        // usage log below shows which case we're in.
+        system: [
+          {
+            type: "text",
+            text: SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
         messages,
         ...(wantStream ? { stream: true } : {}),
       }),
@@ -484,6 +505,7 @@ export default async function handler(req, res) {
     if (!wantStream) {
       // Non-streaming path — unchanged; also serves as the client fallback.
       const data = await response.json();
+      logCacheUsage(data.usage);
       const raw = (data.content || [])
         .filter((block) => block.type === "text")
         .map((block) => block.text)
@@ -534,7 +556,9 @@ export default async function handler(req, res) {
             } catch {
               continue;
             }
-            if (evt.type === "content_block_delta" && evt.delta && typeof evt.delta.text === "string") {
+            if (evt.type === "message_start" && evt.message) {
+              logCacheUsage(evt.message.usage);
+            } else if (evt.type === "content_block_delta" && evt.delta && typeof evt.delta.text === "string") {
               raw += evt.delta.text;
               const visible = extractor.push(evt.delta.text);
               if (visible) emit("delta", { text: visible });
