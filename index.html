@@ -858,9 +858,9 @@
 
   // On submit, glide the new user message to the top of the view; the reply
   // then renders downward from there. The spacer is grown to a full viewport
-  // (instantly — no transition) so the anchor position always exists.
+  // instantly so the anchor position always exists.
   function anchorToTop(row) {
-    spacer.style.transition = "none";
+    clearSettleWatcher();
     spacer.style.height = chatEl.clientHeight + "px";
     const target =
       chatEl.scrollTop +
@@ -870,13 +870,45 @@
     chatEl.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   }
 
+  let settleWatcher = null; // scroll listener waiting to collapse the spacer invisibly
+
+  function clearSettleWatcher() {
+    if (settleWatcher) {
+      chatEl.removeEventListener("scroll", settleWatcher);
+      settleWatcher = null;
+    }
+  }
+
   // The anchor is temporary: once the turn completes (answer + chips), the
-  // spacer glides to zero so no blank region is ever left at rest. Long
-  // answers already fill the viewport (nothing moves); short turns settle
-  // gently back to a bottom-aligned chat.
+  // chat settles in two phases. Phase 1 glides to the rest position with
+  // NATIVE smooth scrolling (hardware-assisted — buttery on mobile, where
+  // animating the spacer's height instead is a main-thread layout animation
+  // that Safari steps coarsely and reads as a snap). Phase 2 removes the
+  // spacer only once it sits entirely below the visible area, so the
+  // collapse itself paints nothing. If the visitor grabs the screen
+  // mid-glide, the native scroll yields to them and the collapse waits
+  // until it can happen invisibly — it is never forced into a visible jump.
   function settleSpacer() {
-    spacer.style.transition = "height 0.4s ease";
-    spacer.style.height = "0px";
+    clearSettleWatcher();
+    const spacerH = spacer.getBoundingClientRect().height;
+    if (spacerH < 1) return; // long answers already fill the view — nothing moves
+
+    const restTop = Math.max(0, chatEl.scrollHeight - spacerH - chatEl.clientHeight);
+    const collapseIfInvisible = () => {
+      if (chatEl.scrollTop <= restTop + 2) {
+        spacer.style.height = "0px";
+        clearSettleWatcher();
+        updateScrollHint();
+        return true;
+      }
+      return false;
+    };
+
+    chatEl.scrollTo({ top: restTop, behavior: "smooth" });
+    if (!collapseIfInvisible()) {
+      settleWatcher = collapseIfInvisible;
+      chatEl.addEventListener("scroll", settleWatcher, { passive: true });
+    }
   }
 
   function resolveTyping(typing, text) {
@@ -1266,7 +1298,7 @@
 
   function resetChat() {
     if (currentStream) currentStream.abort(); // cleanly stop an in-progress stream
-    spacer.style.transition = "none";
+    clearSettleWatcher();
     spacer.style.height = "0px";
     chatEl.innerHTML = "";
     history.length = 0;
