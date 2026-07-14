@@ -8,11 +8,13 @@
  * Responsibilities (same spec as the original Worker):
  *  - Holds the Anthropic API key server-side (env var: ANTHROPIC_API_KEY)
  *  - Injects the system prompt on every request
- *  - Per-IP rate limiting (Upstash Redis via REST, if configured):
- *      • 1 message per 10 seconds
+ *  - Rate limiting (Upstash Redis via REST, if configured):
+ *      • Per-person (session bucket): 15 msgs per rolling hour + 10s cooldown
+ *      • Shared-IP backstop: 45 msgs/hour, no cooldown — WiFi/CGNAT
+ *        neighbors share an IP and must not rate-limit each other
+ *      • Requests without a session ID get the strict limits on their IP
  *      • Suggestion-chip taps (fromChip: true) bypass the 10s cooldown and
- *        don't advance its timer; they still count toward the hourly cap
- *      • 15 messages per rolling hour window
+ *        don't advance its timer; they still count toward the hourly caps
  *      • Tiered warnings: 1st blocked attempt = explanation, 2nd+ = live countdown
  *      • Blocked attempts NEVER reset or extend the timers
  *      • Warning responses NEVER call the Claude API
@@ -155,7 +157,8 @@ const MAX_TOKENS = 650; // reply (plain text) + JSON wrapper + up to 2 suggestio
 const MAX_TURNS = 10;
 
 const COOLDOWN_SECONDS = 10;
-const HOURLY_LIMIT = 15;
+const HOURLY_LIMIT = 15; // per person: the session bucket (or the IP bucket when no session ID came)
+const IP_HOURLY_LIMIT = 45; // shared-IP backstop: WiFi/CGNAT neighbors share this, so it's looser
 const HOUR_SECONDS = 3600;
 
 const MSG_COOLDOWN_FIRST =
@@ -421,17 +424,26 @@ export default async function handler(req, res) {
 
     // Limits are enforced per IP AND per client session ID, so switching
     // networks mid-conversation (phone hopping LTE→WiFi, Private Relay
-    // rotating egress IPs) doesn't hand out a fresh budget. The session ID
-    // is a random unauthenticated string from the client: spoofing or
-    // omitting it just degrades to pure IP limiting, which stays the
-    // backstop, so it grants nothing.
+    // rotating egress IPs) doesn't hand out a fresh budget.
+    //
+    // The buckets play different roles: the SESSION bucket carries the real
+    // per-person limits (15/hour + 10s cooldown), while the shared IP bucket
+    // is a looser anti-abuse backstop (45/hour, no cooldown) — so WiFi/CGNAT
+    // neighbors don't rate-limit each other in normal use. A request with no
+    // session ID (scripted clients) gets the strict limits applied to its IP
+    // bucket instead, so omitting the session grants nothing.
     const sessionId =
       typeof body.session === "string"
         ? body.session.replace(/[^\w-]/g, "").slice(0, 64)
         : "";
-    const keys = [`rl:${clientIp(req)}`];
-    if (sessionId) keys.push(`rls:${sessionId}`);
-    const states = await Promise.all(keys.map(readState));
+    const ipKey = `rl:${clientIp(req)}`;
+    const buckets = sessionId
+      ? [
+          { key: ipKey, hourly: IP_HOURLY_LIMIT, cooldown: false },
+          { key: `rls:${sessionId}`, hourly: HOURLY_LIMIT, cooldown: true },
+        ]
+      : [{ key: ipKey, hourly: HOURLY_LIMIT, cooldown: true }];
+    const states = await Promise.all(buckets.map((b) => readState(b.key)));
 
     // Expire hourly windows that have fully elapsed.
     for (const state of states) {
@@ -442,16 +454,16 @@ export default async function handler(req, res) {
       }
     }
 
-    // --- Check 1: hourly cap (blocked if ANY bucket is over) ---
+    // --- Check 1: hourly cap (blocked if ANY bucket is over its limit) ---
     for (let i = 0; i < states.length; i++) {
       const state = states[i];
-      if (state.hourCount >= HOURLY_LIMIT) {
+      if (state.hourCount >= buckets[i].hourly) {
         const remainingSec = state.hourStart + HOUR_SECONDS - now;
         let reply;
         if (!state.hourWarned) {
           reply = MSG_HOURLY_FIRST;
           state.hourWarned = true;
-          await writeState(keys[i], state); // warned flag only — timers untouched
+          await writeState(buckets[i].key, state); // warned flag only — timers untouched
         } else {
           const mins = Math.max(1, Math.ceil(remainingSec / 60));
           reply = countdownMsg(mins, mins === 1 ? "minute" : "minutes");
@@ -461,17 +473,18 @@ export default async function handler(req, res) {
       }
     }
 
-    // --- Check 2: 10-second cooldown (any bucket; chip taps are exempt) ---
+    // --- Check 2: 10s cooldown (cooldown buckets only; chip taps exempt) ---
     if (!fromChip) {
       for (let i = 0; i < states.length; i++) {
         const state = states[i];
+        if (!buckets[i].cooldown) continue;
         if (state.last && now - state.last < COOLDOWN_SECONDS) {
           const remainingSec = COOLDOWN_SECONDS - (now - state.last);
           let reply;
           if (!state.cooldownWarned) {
             reply = MSG_COOLDOWN_FIRST;
             state.cooldownWarned = true;
-            await writeState(keys[i], state); // warned flag only — timers untouched
+            await writeState(buckets[i].key, state); // warned flag only — timers untouched
           } else {
             const secs = Math.max(1, remainingSec);
             reply = countdownMsg(secs, secs === 1 ? "second" : "seconds");
@@ -485,15 +498,16 @@ export default async function handler(req, res) {
     // ---- Legitimate message: advance the timers in every bucket --------
     // Chip taps neither check nor start the 10s cooldown timer; they only
     // consume from the hourly budget.
-    for (const state of states) {
-      if (!fromChip) {
+    for (let i = 0; i < states.length; i++) {
+      const state = states[i];
+      if (!fromChip && buckets[i].cooldown) {
         state.last = now;
         state.cooldownWarned = false;
       }
       if (!state.hourStart) state.hourStart = now;
       state.hourCount += 1;
     }
-    await Promise.all(states.map((state, i) => writeState(keys[i], state)));
+    await Promise.all(states.map((state, i) => writeState(buckets[i].key, state)));
   }
 
   // ---- Call Claude ------------------------------------------------------
