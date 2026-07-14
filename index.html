@@ -656,6 +656,22 @@
   const MSG_OFFLINE =
     "Looks like the connection dropped — check your internet and tap Try again.";
 
+  // Random per-tab session ID sent with each message so server-side rate
+  // limiting survives a network/IP change. Anonymous and disposable —
+  // it identifies this tab's session, never the visitor.
+  let sessionId = "";
+  try {
+    sessionId = sessionStorage.getItem("askTomSession") || "";
+    if (!sessionId) {
+      sessionId =
+        (crypto.randomUUID && crypto.randomUUID()) ||
+        Date.now().toString(36) + Math.random().toString(36).slice(2);
+      sessionStorage.setItem("askTomSession", sessionId);
+    }
+  } catch {
+    sessionId = Math.random().toString(36).slice(2);
+  }
+
   // ================= Suggestion chips =================
   // AI-generated follow-up chips grouped below a bot answer. Only one active
   // set at a time; a session caps at 4 TAPPED sets (ignored sets don't count;
@@ -1061,7 +1077,7 @@
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, fromChip: !!opts.fromChip, stream: true }),
+        body: JSON.stringify({ messages: history, fromChip: !!opts.fromChip, stream: true, session: sessionId }),
         signal: abort.signal,
       });
 

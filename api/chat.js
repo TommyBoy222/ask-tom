@@ -410,59 +410,83 @@ export default async function handler(req, res) {
 
   // ---- Rate limiting (skipped entirely if Redis isn't configured) -------
   if (redisEnabled) {
-    const key = `rl:${clientIp(req)}`;
     const now = Math.floor(Date.now() / 1000);
-    let state = await readState(key);
 
-    // Expire the hourly window if it has fully elapsed.
-    if (state.hourStart && now - state.hourStart >= HOUR_SECONDS) {
-      state.hourStart = 0;
-      state.hourCount = 0;
-      state.hourWarned = false;
-    }
+    // Limits are enforced per IP AND per client session ID, so switching
+    // networks mid-conversation (phone hopping LTE→WiFi, Private Relay
+    // rotating egress IPs) doesn't hand out a fresh budget. The session ID
+    // is a random unauthenticated string from the client: spoofing or
+    // omitting it just degrades to pure IP limiting, which stays the
+    // backstop, so it grants nothing.
+    const sessionId =
+      typeof body.session === "string"
+        ? body.session.replace(/[^\w-]/g, "").slice(0, 64)
+        : "";
+    const keys = [`rl:${clientIp(req)}`];
+    if (sessionId) keys.push(`rls:${sessionId}`);
+    const states = await Promise.all(keys.map(readState));
 
-    // --- Check 1: hourly cap ---
-    if (state.hourCount >= HOURLY_LIMIT) {
-      const remainingSec = state.hourStart + HOUR_SECONDS - now;
-      let reply;
-      if (!state.hourWarned) {
-        reply = MSG_HOURLY_FIRST;
-        state.hourWarned = true;
-        await writeState(key, state); // warned flag only — timers untouched
-      } else {
-        const mins = Math.max(1, Math.ceil(remainingSec / 60));
-        reply = countdownMsg(mins, mins === 1 ? "minute" : "minutes");
+    // Expire hourly windows that have fully elapsed.
+    for (const state of states) {
+      if (state.hourStart && now - state.hourStart >= HOUR_SECONDS) {
+        state.hourStart = 0;
+        state.hourCount = 0;
+        state.hourWarned = false;
       }
-      res.status(200).json({ reply, rateLimited: true });
-      return;
     }
 
-    // --- Check 2: 10-second cooldown (chip taps are exempt) ---
-    if (!fromChip && state.last && now - state.last < COOLDOWN_SECONDS) {
-      const remainingSec = COOLDOWN_SECONDS - (now - state.last);
-      let reply;
-      if (!state.cooldownWarned) {
-        reply = MSG_COOLDOWN_FIRST;
-        state.cooldownWarned = true;
-        await writeState(key, state); // warned flag only — timers untouched
-      } else {
-        const secs = Math.max(1, remainingSec);
-        reply = countdownMsg(secs, secs === 1 ? "second" : "seconds");
+    // --- Check 1: hourly cap (blocked if ANY bucket is over) ---
+    for (let i = 0; i < states.length; i++) {
+      const state = states[i];
+      if (state.hourCount >= HOURLY_LIMIT) {
+        const remainingSec = state.hourStart + HOUR_SECONDS - now;
+        let reply;
+        if (!state.hourWarned) {
+          reply = MSG_HOURLY_FIRST;
+          state.hourWarned = true;
+          await writeState(keys[i], state); // warned flag only — timers untouched
+        } else {
+          const mins = Math.max(1, Math.ceil(remainingSec / 60));
+          reply = countdownMsg(mins, mins === 1 ? "minute" : "minutes");
+        }
+        res.status(200).json({ reply, rateLimited: true });
+        return;
       }
-      res.status(200).json({ reply, rateLimited: true });
-      return;
     }
 
-    // ---- Legitimate message: advance the timers ------------------------
+    // --- Check 2: 10-second cooldown (any bucket; chip taps are exempt) ---
+    if (!fromChip) {
+      for (let i = 0; i < states.length; i++) {
+        const state = states[i];
+        if (state.last && now - state.last < COOLDOWN_SECONDS) {
+          const remainingSec = COOLDOWN_SECONDS - (now - state.last);
+          let reply;
+          if (!state.cooldownWarned) {
+            reply = MSG_COOLDOWN_FIRST;
+            state.cooldownWarned = true;
+            await writeState(keys[i], state); // warned flag only — timers untouched
+          } else {
+            const secs = Math.max(1, remainingSec);
+            reply = countdownMsg(secs, secs === 1 ? "second" : "seconds");
+          }
+          res.status(200).json({ reply, rateLimited: true });
+          return;
+        }
+      }
+    }
+
+    // ---- Legitimate message: advance the timers in every bucket --------
     // Chip taps neither check nor start the 10s cooldown timer; they only
     // consume from the hourly budget.
-    if (!fromChip) {
-      state.last = now;
-      state.cooldownWarned = false;
+    for (const state of states) {
+      if (!fromChip) {
+        state.last = now;
+        state.cooldownWarned = false;
+      }
+      if (!state.hourStart) state.hourStart = now;
+      state.hourCount += 1;
     }
-    if (!state.hourStart) state.hourStart = now;
-    state.hourCount += 1;
-    await writeState(key, state);
+    await Promise.all(states.map((state, i) => writeState(keys[i], state)));
   }
 
   // ---- Call Claude ------------------------------------------------------
