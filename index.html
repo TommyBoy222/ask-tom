@@ -904,11 +904,16 @@
       return false;
     };
 
+    // Long answers: the reader is anchored ABOVE the rest point with more
+    // content to read below — the spacer collapses with zero movement and
+    // NO scrolling happens (the ↓ arrow stays meaningful).
+    if (collapseIfInvisible()) return;
+
+    // Short turns: the anchored view sits below the rest point with blank
+    // spacer on screen — glide down natively, then collapse once invisible.
     chatEl.scrollTo({ top: restTop, behavior: "smooth" });
-    if (!collapseIfInvisible()) {
-      settleWatcher = collapseIfInvisible;
-      chatEl.addEventListener("scroll", settleWatcher, { passive: true });
-    }
+    settleWatcher = collapseIfInvisible;
+    chatEl.addEventListener("scroll", settleWatcher, { passive: true });
   }
 
   function resolveTyping(typing, text) {
