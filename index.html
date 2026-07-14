@@ -902,10 +902,26 @@
     scrollHint.classList.toggle("show", contentBottom - viewBottom > 24);
   }
 
-  chatEl.addEventListener("scroll", updateScrollHint, { passive: true });
+  chatEl.addEventListener(
+    "scroll",
+    () => {
+      // The tail spacer only exists to hold the top-anchor steady; once the
+      // reader scrolls past the end of the content (and nothing is
+      // generating), collapse it so there's no blank dead zone below the
+      // last message.
+      if (!busy && parseFloat(spacer.style.height) > 0) {
+        const contentBottom = spacer.getBoundingClientRect().top;
+        const viewBottom = chatEl.getBoundingClientRect().bottom;
+        if (viewBottom > contentBottom + 4) spacer.style.height = "0px";
+      }
+      updateScrollHint();
+    },
+    { passive: true }
+  );
   window.addEventListener("resize", updateScrollHint);
 
   scrollHint.addEventListener("click", () => {
+    if (!busy) spacer.style.height = "0px"; // no blank space past the newest message
     const target =
       chatEl.scrollTop +
       spacer.getBoundingClientRect().top -
