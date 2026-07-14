@@ -653,6 +653,9 @@
   const MSG_FALLBACK =
     "Thanks to high demand, this assistant has reached its capacity site-wide for now. Please check back soon, or feel free to reach out to Tom directly in the meantime.";
 
+  const MSG_OFFLINE =
+    "Looks like the connection dropped — check your internet and tap Try again.";
+
   // ================= Suggestion chips =================
   // AI-generated follow-up chips grouped below a bot answer. Only one active
   // set at a time; a session caps at 4 TAPPED sets (ignored sets don't count;
@@ -1093,10 +1096,11 @@
         // Let the typewriter finish drawing what's queued before finalizing.
         if (writer) await writer.finish();
         // Stream ended without a done event: keep whatever text arrived.
+        // Nothing at all means the connection died, not the backend.
         if (!data) {
           data = streamedText
             ? { reply: streamedText, answerType: "general", suggestions: [] }
-            : { reply: MSG_FALLBACK, unavailable: true };
+            : { reply: MSG_OFFLINE, unavailable: true };
         }
       } else {
         // Plain JSON response: rate-limit warning, outage notice, or a
@@ -1144,7 +1148,9 @@
         resolveTyping(typing, streamedText);
         history.push({ role: "assistant", content: streamedText });
       } else {
-        resolveTyping(typing, MSG_FALLBACK);
+        // fetch threw before anything arrived — that's the visitor's
+        // connection (or a total network failure), not backend capacity.
+        resolveTyping(typing, MSG_OFFLINE);
         history.pop();
         showRetryChip(typing.row, message, userRow);
       }
