@@ -203,6 +203,12 @@ const MODEL = "claude-haiku-4-5";
 const MAX_TOKENS = 650; // reply (plain text) + JSON wrapper + up to 2 suggestions
 const MAX_TURNS = 10;
 
+// Authoritative per-message length cap. The client enforces the same 600 via
+// the input's maxlength, but anyone can POST directly to this endpoint, so the
+// server is the real gate. A new user message over the cap is rejected (400);
+// older history entries over the cap are trimmed silently (see sanitizeHistory).
+const MAX_MESSAGE_CHARS = 600;
+
 const COOLDOWN_SECONDS = 10;
 const HOURLY_LIMIT = 15; // per person: the session bucket (or the IP bucket when no session ID came)
 const IP_HOURLY_LIMIT = 45; // shared-IP backstop: WiFi/CGNAT neighbors share this, so it's looser
@@ -313,8 +319,21 @@ function sanitizeHistory(raw) {
         typeof m.content === "string" &&
         m.content.trim().length > 0
     )
-    .map((m) => ({ role: m.role, content: m.content.trim().slice(0, 4000) }));
-  return clean.slice(-MAX_TURNS * 2);
+    .map((m) => ({ role: m.role, content: m.content.trim() }));
+  const recent = clean.slice(-MAX_TURNS * 2);
+  // Enforce the per-message length cap. Every entry EXCEPT the last is trimmed
+  // to MAX_MESSAGE_CHARS silently — the model only needs the gist of prior
+  // turns, and rejecting on stale history could permanently wedge a live
+  // session over data the visitor can't edit. Applies to both user and
+  // assistant history entries. The last entry (the new user message) is left
+  // intact so the handler can reject it with a 400 if it's over the cap rather
+  // than silently truncating it. Length is measured on the trimmed content, so
+  // trailing whitespace/newlines never push a message over the line.
+  return recent.map((m, i) =>
+    i < recent.length - 1
+      ? { role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }
+      : m
+  );
 }
 
 function clientIp(req) {
@@ -462,6 +481,17 @@ export default async function handler(req, res) {
   const fromChip = body.fromChip === true;
   if (!messages.length || messages[messages.length - 1].role !== "user") {
     res.status(400).json({ error: "A user message is required" });
+    return;
+  }
+
+  // ---- Message length cap (authoritative) -------------------------------
+  // Reject a new user message over the cap BEFORE any Anthropic call, before
+  // any streaming begins, and before any rate-limit counter is touched — so a
+  // rejected oversized message never consumes the visitor's hourly budget.
+  // Always plain JSON, never SSE, regardless of body.stream (same pattern as
+  // the rate-limited response). Measured on trimmed content (see sanitizeHistory).
+  if (messages[messages.length - 1].content.length > MAX_MESSAGE_CHARS) {
+    res.status(400).json({ error: "Message too long", maxChars: MAX_MESSAGE_CHARS });
     return;
   }
 

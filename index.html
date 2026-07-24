@@ -475,6 +475,7 @@
 
   /* ---------------- Input row ---------------- */
   .inputrow {
+    position: relative; /* anchors the overlaid character counter */
     display: flex;
     align-items: center;
     gap: 10px;
@@ -482,6 +483,30 @@
     border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
+
+  /* Character counter — floats just above the input, right-aligned. Absolutely
+     positioned so appearing/disappearing never reflows the input or send
+     button (no layout jump). The pill background keeps it legible over any
+     chat content behind it. */
+  .charcount {
+    position: absolute;
+    right: 16px;
+    bottom: calc(100% - 1px); /* nestles just above the input row's top border */
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, color 0.15s ease;
+  }
+  .charcount.show { opacity: 1; }
+  /* Warning red — the same #d11a2a used by the destructive Reset confirm button. */
+  .charcount.warn { color: #d11a2a; }
   .inputrow input {
     flex: 1;
     font-size: 16px; /* >=16px stops iOS Safari's tap-to-zoom on inputs */
@@ -599,7 +624,11 @@
 
   <!-- Input -->
   <div class="inputrow">
-    <input id="input" type="text" placeholder="Type a message..." maxlength="1000" autocomplete="off" aria-label="Your message" />
+    <!-- Character counter: overlaid above the input (absolute, no reflow) so it
+         never shifts the input or send button when it fades in. Hidden below
+         500 chars; muted 500-569; warning red at 570+. Hard cap via maxlength. -->
+    <span id="charcount" class="charcount" aria-hidden="true"></span>
+    <input id="input" type="text" placeholder="Type a message..." maxlength="600" autocomplete="off" aria-label="Your message" />
     <button class="send" id="send" type="button" aria-label="Send message">
       <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -620,6 +649,7 @@
   const chatEl  = document.getElementById("chat");
   const inputEl = document.getElementById("input");
   const sendEl  = document.getElementById("send");
+  const charCountEl = document.getElementById("charcount");
   const scrollHint = document.getElementById("scrollHint");
 
   const backLink      = document.getElementById("backLink");
@@ -655,6 +685,12 @@
 
   const MSG_OFFLINE =
     "Looks like the connection dropped — check your internet and tap Try again.";
+
+  // Shown when the server rejects a message with HTTP 400 (e.g. over the
+  // 600-char cap). Unreachable from the UI — the input caps typing at 600 —
+  // so this is the safety net for direct API callers.
+  const MSG_TOO_LONG =
+    "That message is a bit too long — try trimming it to 600 characters or less.";
 
   // Random per-tab session ID sent with each message so server-side rate
   // limiting survives a network/IP change. Anonymous and disposable —
@@ -1091,6 +1127,7 @@
     busy = true;
     sendEl.disabled = true;
     inputEl.value = "";
+    updateCharCount(); // reset the counter now that the field is cleared
     clearSuggestions(); // typed-over sets vanish and don't count toward the cap
 
     // Retries reuse the original user bubble instead of adding a duplicate.
@@ -1119,7 +1156,15 @@
       const ctype = (res.headers.get("content-type") || "").toLowerCase();
       let data = null;
 
-      if (ctype.includes("text/event-stream")) {
+      if (res.status === 400) {
+        // Server rejected the message outright (e.g. over the 600-char cap).
+        // Always plain JSON, never a stream. Render a tidy notice that behaves
+        // exactly like a rate-limit reply: no chips, doesn't count toward the
+        // chip cap, and the failed turn is dropped from history. Unreachable
+        // from the UI (maxlength caps typing at 600) — safety net for direct
+        // API callers.
+        data = { reply: MSG_TOO_LONG, rateLimited: true };
+      } else if (ctype.includes("text/event-stream")) {
         const onEvent = (event, payload) => {
           if (event === "delta" && payload && typeof payload.text === "string") {
             if (!writer) writer = createTypewriter(typing); // first token: dots → live text
@@ -1223,6 +1268,25 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
 
+  // ================= Character counter =================
+  // Mirrors the server's authoritative 600-char cap. The input's maxlength is
+  // the hard stop (typing/paste can't exceed 600); this is the visible cue.
+  // Hidden below 500, muted 500-569, warning red at 570+. The "input" event
+  // covers typing, deletion, cut, and paste (native maxlength truncates the
+  // paste first, so the count always reflects the true post-paste length).
+  const MAX_INPUT_CHARS = 600;
+  const COUNTER_SHOW_AT = 500;
+  const COUNTER_WARN_AT = 570;
+
+  function updateCharCount() {
+    const len = inputEl.value.length;
+    charCountEl.textContent = len + "/" + MAX_INPUT_CHARS;
+    charCountEl.classList.toggle("show", len >= COUNTER_SHOW_AT);
+    charCountEl.classList.toggle("warn", len >= COUNTER_WARN_AT);
+  }
+  inputEl.addEventListener("input", updateCharCount);
+  updateCharCount(); // initialize (e.g. if the field restored with text)
+
   // ================= Slide-out menu =================
   function setMenu(open) {
     menuEl.classList.toggle("open", open);
@@ -1313,6 +1377,7 @@
     activeSuggestionsData = null;
     try { sessionStorage.removeItem(STORE_KEY); } catch {}
     inputEl.value = "";
+    updateCharCount();              // counter back to hidden after the wipe
     showGreeting();                 // greeting + starter chips back in the flow
     updateScrollHint();
   }
