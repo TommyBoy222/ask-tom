@@ -520,8 +520,8 @@
     padding: 11px 16px;
     outline: none;
     resize: none;        /* growth is automatic — no manual drag handle */
-    overflow-y: hidden;  /* JS switches to auto once the ~9-row cap is hit */
-    max-height: 224px;   /* ~9 rows, then it scrolls internally */
+    overflow-y: hidden;  /* JS switches to auto once the ~7-row cap is hit */
+    max-height: 180px;   /* ~7 rows fallback; JS computes the precise cap */
     transition: border-color 0.15s ease;
   }
   .inputrow textarea::placeholder { color: var(--text-muted); }
@@ -1270,9 +1270,21 @@
   }
 
   sendEl.addEventListener("click", () => send());
+
+  // On touch devices there's only one return key and no Shift+Enter, so the
+  // return key must insert a newline (send is the button) — matching standard
+  // mobile messaging. On fine-pointer (desktop) keyboards, Enter sends and
+  // Shift+Enter inserts a newline. `.matches` is live, so an attached/removed
+  // keyboard is reflected without a reload. The send button always sends.
+  const coarsePointer =
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: coarse)")
+      : null;
   inputEl.addEventListener("keydown", (e) => {
-    // Enter sends; Shift+Enter inserts a newline. Ignore Enter mid-IME-composition.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing) return; // newline, or nothing
+    if (coarsePointer && coarsePointer.matches) return; // touch keyboard: let return insert a newline
+    e.preventDefault();
+    send(); // fine-pointer keyboard: Enter sends
   });
 
   // ================= Character counter =================
@@ -1295,15 +1307,24 @@
   updateCharCount(); // initialize (e.g. if the field restored with text)
 
   // ================= Auto-growing input =================
-  // The textarea starts at one row and grows with the message up to a ~9-row
+  // The textarea starts at one row and grows with the message up to a ~7-row
   // cap, then scrolls internally so the user can scroll back through their own
   // draft while still typing at the end. It snaps back to one row whenever the
-  // field is cleared (after a send, and on Reset Chat).
-  const MAX_TEXTAREA_PX = 224; // ~9 rows before it scrolls internally
+  // field is cleared (after a send, and on Reset Chat). The cap is derived from
+  // the actual line-height + vertical padding (matching scrollHeight's
+  // content+padding box), so it stays correct if the font ever changes.
+  const MAX_TEXTAREA_ROWS = 7;
+  function maxTextareaPx() {
+    const cs = getComputedStyle(inputEl);
+    const lineHeight = parseFloat(cs.lineHeight) || 22;
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    return lineHeight * MAX_TEXTAREA_ROWS + padY;
+  }
   function autoGrowInput() {
+    const maxPx = maxTextareaPx();
     inputEl.style.height = "auto"; // reset first so scrollHeight reflects content
-    const capped = inputEl.scrollHeight > MAX_TEXTAREA_PX;
-    inputEl.style.height = (capped ? MAX_TEXTAREA_PX : inputEl.scrollHeight) + "px";
+    const capped = inputEl.scrollHeight > maxPx;
+    inputEl.style.height = (capped ? maxPx : inputEl.scrollHeight) + "px";
     inputEl.style.overflowY = capped ? "auto" : "hidden";
   }
   inputEl.addEventListener("input", autoGrowInput);
