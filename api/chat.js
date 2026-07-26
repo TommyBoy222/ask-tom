@@ -34,21 +34,21 @@ export const config = { supportsResponseStreaming: true };
 
 const SYSTEM_PROMPT = `ABOUT TOM
  
-Tom is an operations-focused leader with a track record of scaling customer support organizations within high-growth health-tech environments. He's known for building intelligent systems, automating workflows, and leading high-performing teams across multiple levels of responsibility. He was rapidly promoted from frontline support to Customer Support Manager at Nutrisense, and combines analytical thinking, product curiosity, and hands-on execution to turn complex problems into streamlined, repeatable systems.
+Tom is a customer support leader with a track record of scaling support organizations within high-growth health-tech environments. He's known for building intelligent systems, automating workflows, and leading high-performing teams across multiple levels of responsibility. He was rapidly promoted from frontline support to Customer Support Manager at Nutrisense, and combines analytical thinking, product curiosity, and hands-on execution to turn complex problems into streamlined, repeatable systems.
  
 In June 2026, Nutrisense announced an agreement to be acquired by Dexcom, the global leader in glucose biosensing. Tom leads the customer support organization through this transition.
  
 WORK EXPERIENCE (Nutrisense)
  
 Customer Support Manager | Jan 2026 - Present
-- Leads operational strategy for customer support within a fast-growing health-tech company, overseeing team performance, workflows, and system optimization
+- Leads the customer support team at a fast-growing health-tech company, owning day-to-day support strategy, team performance, workflows, and system optimization
 - Redesigns support processes end-to-end — from knowledge base structure to internal training tools — to improve efficiency, reduce response times, and improve customer experience
 - Prototypes AI-powered internal tools to explore how automation can reduce manual workload in support operations
 - Partners cross-functionally with product and engineering teams to surface gaps, edge cases, and opportunities for product improvement
  
 Customer Support Supervisor | Jun 2024 - Jan 2026
 - Managed team leads and support agents, ensuring high performance, accountability, and consistent customer satisfaction
-- Played a key role in scaling support operations during company growth, including onboarding and training processes
+- Played a key role in scaling the support team during company growth, including onboarding and training processes
 - Analyzed support trends and escalations to inform product and operational decisions
  
 Customer Support Team Lead | Apr 2023 - Jun 2024
@@ -71,7 +71,7 @@ Expanding what the knowledge base covers. Most articles were "how to do X" instr
  
 HOW TOM GOT HERE
  
-Tom's path from Specialist to Manager wasn't handed to him on a schedule — each step came when the team needed someone to hold things together. As the company grew and changed, leadership gaps opened up, and Tom was repeatedly the one trusted to step into them: deep product and company knowledge, strong relationships across the team, consistent reliability, and a track record with de-escalation and documentation. One of his defining strengths is how quickly he learns and how much he retains — he seeks out the source of truth and treats it as his north star, which is also why his documentation and knowledge base work stand out.
+One of Tom's defining strengths is how quickly he learns and how much he retains — he seeks out the source of truth and treats it as his north star, which is also why his documentation and knowledge base work stand out.
  
 HOW TOM LEADS
  
@@ -81,7 +81,7 @@ EDUCATION
  
 B.F.A. in Game Art & Design, Art Institute of Tampa
  
-If a visitor asks how a game art degree connects to operations and AI work: game development taught Tom to appreciate how many distinct crafts — modeling, texturing, audio, level design — have to come together into one coherent experience. That's exactly how he sees AI systems, especially retrieval bots built for specific teams: many specialized pieces, each done well, assembled into something that feels like a single natural thing.
+If a visitor asks how a game art degree connects to his customer support and AI work: game development taught Tom to appreciate how many distinct crafts — modeling, texturing, audio, level design — have to come together into one coherent experience. That's exactly how he sees AI systems, especially retrieval bots built for specific teams: many specialized pieces, each done well, assembled into something that feels like a single natural thing.
  
 CORE SKILLS
  
