@@ -477,7 +477,7 @@
   .inputrow {
     position: relative; /* anchors the overlaid character counter */
     display: flex;
-    align-items: center;
+    align-items: flex-end; /* send button stays at the bottom as the textarea grows */
     gap: 10px;
     padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
@@ -507,20 +507,25 @@
   .charcount.show { opacity: 1; }
   /* Warning red — the same #d11a2a used by the destructive Reset confirm button. */
   .charcount.warn { color: #d11a2a; }
-  .inputrow input {
+  .inputrow textarea {
     flex: 1;
+    display: block;
     font-size: 16px; /* >=16px stops iOS Safari's tap-to-zoom on inputs */
     font-family: inherit;
+    line-height: 1.4; /* predictable row height for the grow cap */
     color: var(--text);
     background: var(--surface);
     border: 1.5px solid var(--border);
-    border-radius: 999px;
+    border-radius: 22px; /* reads as a pill at one row; a rounded box once it grows */
     padding: 11px 16px;
     outline: none;
+    resize: none;        /* growth is automatic — no manual drag handle */
+    overflow-y: hidden;  /* JS switches to auto once the ~9-row cap is hit */
+    max-height: 224px;   /* ~9 rows, then it scrolls internally */
     transition: border-color 0.15s ease;
   }
-  .inputrow input::placeholder { color: var(--text-muted); }
-  .inputrow input:focus { border-color: var(--accent); }
+  .inputrow textarea::placeholder { color: var(--text-muted); }
+  .inputrow textarea:focus { border-color: var(--accent); }
 
   .send {
     display: flex;
@@ -628,7 +633,7 @@
          never shifts the input or send button when it fades in. Hidden below
          500 chars; muted 500-569; warning red at 570+. Hard cap via maxlength. -->
     <span id="charcount" class="charcount" aria-hidden="true"></span>
-    <input id="input" type="text" placeholder="Type a message..." maxlength="600" autocomplete="off" aria-label="Your message" />
+    <textarea id="input" rows="1" placeholder="Type a message..." maxlength="600" autocomplete="off" aria-label="Your message"></textarea>
     <button class="send" id="send" type="button" aria-label="Send message">
       <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -1128,6 +1133,7 @@
     sendEl.disabled = true;
     inputEl.value = "";
     updateCharCount(); // reset the counter now that the field is cleared
+    autoGrowInput();   // shrink the textarea back to one row
     clearSuggestions(); // typed-over sets vanish and don't count toward the cap
 
     // Retries reuse the original user bubble instead of adding a duplicate.
@@ -1265,7 +1271,8 @@
 
   sendEl.addEventListener("click", () => send());
   inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    // Enter sends; Shift+Enter inserts a newline. Ignore Enter mid-IME-composition.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
   });
 
   // ================= Character counter =================
@@ -1286,6 +1293,21 @@
   }
   inputEl.addEventListener("input", updateCharCount);
   updateCharCount(); // initialize (e.g. if the field restored with text)
+
+  // ================= Auto-growing input =================
+  // The textarea starts at one row and grows with the message up to a ~9-row
+  // cap, then scrolls internally so the user can scroll back through their own
+  // draft while still typing at the end. It snaps back to one row whenever the
+  // field is cleared (after a send, and on Reset Chat).
+  const MAX_TEXTAREA_PX = 224; // ~9 rows before it scrolls internally
+  function autoGrowInput() {
+    inputEl.style.height = "auto"; // reset first so scrollHeight reflects content
+    const capped = inputEl.scrollHeight > MAX_TEXTAREA_PX;
+    inputEl.style.height = (capped ? MAX_TEXTAREA_PX : inputEl.scrollHeight) + "px";
+    inputEl.style.overflowY = capped ? "auto" : "hidden";
+  }
+  inputEl.addEventListener("input", autoGrowInput);
+  autoGrowInput(); // set the initial one-row height
 
   // ================= Slide-out menu =================
   function setMenu(open) {
@@ -1378,6 +1400,7 @@
     try { sessionStorage.removeItem(STORE_KEY); } catch {}
     inputEl.value = "";
     updateCharCount();              // counter back to hidden after the wipe
+    autoGrowInput();                // textarea back to one row
     showGreeting();                 // greeting + starter chips back in the flow
     updateScrollHint();
   }
