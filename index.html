@@ -1487,5 +1487,14 @@
     );
   });
 </script>
+
+<!-- Vercel Web Analytics — anonymous, aggregate traffic only (page views,
+     referrer, country, browser). No cookies, no chat content. Same-origin
+     beacon served by Vercel at /_vercel/insights/* once Web Analytics is
+     enabled for the project in the dashboard; until then this is inert. -->
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
