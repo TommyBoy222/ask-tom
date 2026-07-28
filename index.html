@@ -276,6 +276,7 @@
     align-items: center;
     gap: 6px; /* matches the back link's icon/text gap */
     padding: 8px 10px; /* matches .btn-ghost */
+    min-height: 44px; /* comfortable thumb target even though the glyph is small */
     border: none;
     border-radius: 999px;
     background: transparent;
@@ -302,27 +303,29 @@
     min-width: 3.2em;
     text-align: right;
   }
-  /* The three bars stack vertically here; 5px gap + 2px bar = the 7px the morph
-     translates by. Kept in this wrapper so the label can sit beside them. */
+  /* Sized to sit as a peer to the 16px back arrow. Bars are a touch heavier
+     (2.5px) so the open X reads solid against the bold label rather than
+     spindly. 4px gap + 2.5px bar = the 6.5px the morph translates by. Kept in
+     this wrapper so the label can sit beside them. */
   .hamburger-bars {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    width: 20px;
+    gap: 4px;
+    width: 16px;
   }
   .hamburger .bar {
-    width: 20px;
-    height: 2px;
+    width: 16px;
+    height: 2.5px;
     border-radius: 2px;
     background: currentColor;
     transition: transform 0.25s ease, opacity 0.2s ease;
   }
   /* Morph to X: outer bars rotate into place, middle bar fades out */
-  .hamburger.open .bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .hamburger.open .bar:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
   .hamburger.open .bar:nth-child(2) { opacity: 0; }
-  .hamburger.open .bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  .hamburger.open .bar:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
 
   /* ---------------- Slide-out menu ---------------- */
   .menu-backdrop {
