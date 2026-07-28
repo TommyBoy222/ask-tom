@@ -263,33 +263,60 @@
   .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* ---------------- Hamburger toggle ---------------- */
+  /* Labeled affordance ("Menu ☰" / "Close ✕") — mirrors the "Back to LinkedIn"
+     button on the other side of the header: same font size/weight/color and the
+     same btn-ghost press treatment, so the two read as peers. Text sits inward,
+     the icon stays anchored in the corner (the topbar's space-between pins the
+     button's right edge, and the bars are its rightmost child). */
   .hamburger {
     position: relative;
     z-index: 40; /* stays above the menu panel so the X remains tappable */
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px; /* matches the back link's icon/text gap */
+    padding: 8px 10px; /* matches .btn-ghost */
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+  }
+  .hamburger:active {
+    color: var(--accent-pressed);
+    background: var(--bubble-ai);
+    box-shadow: 0 0 0 3px var(--glow);
+  }
+  .hamburger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Same type as "Back to LinkedIn". A fixed min-width sized to the wider word
+     ("Close") plus right-alignment keeps the icon from shifting when the label
+     swaps mid-morph — the text stays snug against the icon, slack sits inside. */
+  .hamburger-label {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    color: inherit;
+    min-width: 3.2em;
+    text-align: right;
+  }
+  /* The three bars stack vertically here; 5px gap + 2px bar = the 7px the morph
+     translates by. Kept in this wrapper so the label can sit beside them. */
+  .hamburger-bars {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 5px;
-    width: 40px;
-    height: 40px;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s ease, box-shadow 0.15s ease;
+    width: 20px;
   }
-  .hamburger:active {
-    background: var(--bubble-ai);
-    box-shadow: 0 0 0 3px var(--glow);
-  }
-  .hamburger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .hamburger .bar {
     width: 20px;
     height: 2px;
     border-radius: 2px;
-    background: var(--text);
+    background: currentColor;
     transition: transform 0.25s ease, opacity 0.2s ease;
   }
   /* Morph to X: outer bars rotate into place, middle bar fades out */
@@ -566,10 +593,13 @@
       </svg>
       Back to LinkedIn
     </a>
-    <button class="hamburger" id="menuToggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
-      <span class="bar"></span>
-      <span class="bar"></span>
-      <span class="bar"></span>
+    <button class="hamburger" id="menuToggle" type="button" aria-expanded="false" aria-controls="menu">
+      <span class="hamburger-label" id="menuToggleLabel">Menu</span>
+      <span class="hamburger-bars" aria-hidden="true">
+        <span class="bar"></span>
+        <span class="bar"></span>
+        <span class="bar"></span>
+      </span>
     </button>
   </header>
 
@@ -659,6 +689,7 @@
 
   const backLink      = document.getElementById("backLink");
   const menuToggle    = document.getElementById("menuToggle");
+  const menuToggleLabel = document.getElementById("menuToggleLabel");
   const menuEl        = document.getElementById("menu");
   const menuBackdrop  = document.getElementById("menuBackdrop");
   const modalBackdrop = document.getElementById("modalBackdrop");
@@ -1336,7 +1367,7 @@
     menuBackdrop.classList.toggle("open", open);
     menuToggle.classList.toggle("open", open);
     menuToggle.setAttribute("aria-expanded", String(open));
-    menuToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    menuToggleLabel.textContent = open ? "Close" : "Menu";
     menuEl.setAttribute("aria-hidden", String(!open));
   }
 
